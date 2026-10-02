@@ -4,5 +4,6 @@ export * from './HDRPipeline';
 export * from './CameraProvider';
 export * from './PhoneCameraProvider';
 export * from './Insta360Provider';
+export * from './insta360';
 export * from './GoProProvider';
 export * from './CameraManager';
