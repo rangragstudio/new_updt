@@ -207,7 +207,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
           className="flex-1"
         />
         <OutlinedBrassButton
-          text="Launch Matterport Live Capture"
+          text="Launch Live Capture"
           onClick={onOpenCapture}
           icon={Camera}
           className="flex-1"

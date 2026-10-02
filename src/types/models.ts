@@ -265,6 +265,9 @@ export interface Scan {
   tileManifest?: TileManifest | null;
   currentTileLevel: number;
   processingStatus: 'ready' | 'uploading' | 'processing' | 'failed';
+  originalFile?: File;
+  fileUrl?: string;
+  fileSizeBytes?: number;
 }
 
 export interface Link {

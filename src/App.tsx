@@ -35,6 +35,7 @@ export function App() {
         <TourEditorScreen
           tourId={activeTourId}
           onNavigateBack={() => setCurrentView('TOURS')}
+          onNavigateToLiveCapture={() => setCurrentView('CAPTURE')}
           onOpenPublishModal={(id) => setPublishTourId(id)}
         />
         {publishTourId && (

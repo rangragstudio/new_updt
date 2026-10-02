@@ -125,7 +125,7 @@ export const PublishModal: React.FC<PublishModalProps> = ({
         ) : (
           <div className="p-2.5 mb-4 rounded-xl bg-[#9CC0B4]/15 border border-[#9CC0B4]/30 text-xs text-[#9CC0B4] flex items-center gap-2">
             <CheckCircle className="w-4 h-4 shrink-0" />
-            <span>Pre-flight Check Passed: All scans & 8K tiles ready</span>
+            <span>Pre-flight Check Passed: All scans and views ready</span>
           </div>
         )}
 

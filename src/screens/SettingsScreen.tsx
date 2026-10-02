@@ -135,11 +135,11 @@ export const SettingsScreen: React.FC = () => {
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] text-[#F6F2EC]/70">
             <div>Original Uploads: {(accounting.originalUploadsBytes / 1024 / 1024).toFixed(0)} MB</div>
-            <div>Panorama 8K Tiles: {(accounting.panoramaTilesBytes / 1024 / 1024).toFixed(0)} MB</div>
+            <div>Panorama Assets: {(accounting.panoramaTilesBytes / 1024 / 1024).toFixed(0)} MB</div>
             <div>Preview Assets: {(accounting.previewAssetsBytes / 1024 / 1024).toFixed(0)} MB</div>
             <div>Thumbnails: {(accounting.thumbnailsBytes / 1024).toFixed(0)} KB</div>
             <div>Floor Plans: {(accounting.floorPlansBytes / 1024 / 1024).toFixed(0)} MB</div>
-            <div>Render Packages: {(accounting.renderPackagesBytes / 1024 / 1024).toFixed(0)} MB</div>
+            <div>Processed Archives: {(accounting.renderPackagesBytes / 1024 / 1024).toFixed(0)} MB</div>
           </div>
         </div>
 

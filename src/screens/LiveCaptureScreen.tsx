@@ -227,17 +227,12 @@ export const LiveCaptureScreen: React.FC<LiveCaptureScreenProps> = ({
         </div>
 
         {/* Actions */}
-        <div className="flex gap-3 pt-2">
+        <div className="pt-2">
           <BrassButton
-            text="Simulate Next 360° Shot"
+            text="Capture 360° Scan"
             onClick={() => handleCaptureShot(false)}
             icon={Camera}
-            className="flex-1"
-          />
-          <OutlinedBrassButton
-            text="Add Doorway Connector"
-            onClick={() => handleCaptureShot(true)}
-            className="flex-1"
+            className="w-full"
           />
         </div>
       </div>
@@ -259,7 +254,7 @@ export const LiveCaptureScreen: React.FC<LiveCaptureScreenProps> = ({
               </div>
               <div className="p-2.5 rounded-lg bg-[#141210] border border-white/10 flex items-center gap-2 text-xs text-[#F6F2EC]">
                 <CheckCircle className="w-4 h-4 text-[#9CC0B4] shrink-0" />
-                <span>All images validated at 2:1 aspect ratio (8K)</span>
+                <span>All panoramas validated at 2:1 aspect ratio</span>
               </div>
               <div className="p-2.5 rounded-lg bg-[#141210] border border-white/10 flex items-center gap-2 text-xs text-[#F6F2EC]">
                 {spacingWarnings.length === 0 ? (

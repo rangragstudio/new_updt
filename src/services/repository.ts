@@ -92,391 +92,30 @@ class RenderWalkRepositoryStore {
       publicToken: 'aadhya9876543210',
       propertyType: 'Luxury Penthouse',
       address: 'Kalawad Road, Rajkot, Gujarat',
-      status: 'PUBLISHED',
-      roomCount: 4,
-      scanCount: 8,
-      viewCount: 612,
-      leadsCount: 14,
-      draftChanges: 0,
-      brandColorHex: '#D6A77A',
-      isProtected: false,
-      publishedAt: '2 hours ago',
-      updatedAt: '25 mins ago'
-    },
-    {
-      id: 'tour-2',
-      orgId: 'org-1',
-      name: 'The Pavilions Modern Villa',
-      slug: 'the-pavilions-villa',
-      publicToken: 'pavilions1234567',
-      propertyType: 'Modern Villa',
-      address: 'Ambica Township, Rajkot',
-      status: 'PUBLISHED',
-      roomCount: 6,
-      scanCount: 14,
-      viewCount: 428,
-      leadsCount: 7,
-      draftChanges: 2,
-      brandColorHex: '#D6A77A',
-      isProtected: true,
-      publishedAt: 'Yesterday',
-      updatedAt: 'Yesterday'
-    },
-    {
-      id: 'tour-3',
-      orgId: 'org-1',
-      name: 'Heritage Haveli Restoration',
-      slug: 'heritage-haveli-restoration',
-      publicToken: 'haveli3334445556',
-      propertyType: 'Heritage Architecture',
-      address: 'Gondal Palace Road, Gujarat',
-      status: 'PROCESSING',
-      roomCount: 5,
-      scanCount: 11,
+      status: 'DRAFT',
+      roomCount: 0,
+      scanCount: 0,
       viewCount: 0,
       leadsCount: 0,
       draftChanges: 0,
       brandColorHex: '#D6A77A',
       isProtected: false,
-      updatedAt: '1 hour ago'
-    },
-    {
-      id: 'tour-4',
-      orgId: 'org-1',
-      name: 'Minimalist Studio Apartment',
-      slug: 'minimalist-studio-apt',
-      publicToken: 'minimalist778899',
-      propertyType: 'Studio Apartment',
-      address: 'Nana Mava Road, Rajkot',
-      status: 'DRAFT',
-      roomCount: 2,
-      scanCount: 4,
-      viewCount: 45,
-      leadsCount: 1,
-      draftChanges: 5,
-      brandColorHex: '#D6A77A',
-      isProtected: false,
-      updatedAt: '3 days ago'
-    },
-    {
-      id: 'tour-5',
-      orgId: 'org-2',
-      name: 'Emerald Heights Duplex',
-      slug: 'emerald-heights-duplex',
-      publicToken: 'emerald222333444',
-      propertyType: 'Duplex Home',
-      address: 'Ahmedabad Highway, Gujarat',
-      status: 'PUBLISHED',
-      roomCount: 4,
-      scanCount: 7,
-      viewCount: 189,
-      leadsCount: 4,
-      draftChanges: 0,
-      brandColorHex: '#C49A6C',
-      isProtected: false,
-      publishedAt: '4 days ago',
-      updatedAt: '4 days ago'
+      publishedAt: undefined,
+      updatedAt: 'Just now'
     }
   ];
 
-  private scans: Scan[] = [
-    {
-      id: 'scan-1',
-      organizationId: 'org-1',
-      tourId: 'tour-1',
-      roomId: 'room-1',
-      roomName: 'Grand Living Hall',
-      name: 'Living Room Entrance',
-      isStartScan: true,
-      hiddenFromWalkthrough: false,
-      yaw: 15,
-      pitch: -2,
-      hfov: 90,
-      posX: 0,
-      posY: 0,
-      posZ: 1.5,
-      imageRes: '8192 × 4096 (8K)',
-      currentTileLevel: 4,
-      processingStatus: 'ready',
-      tileManifest: this.generateTileManifest('org-1', 'tour-1', 'scan-1', 8192, 4096)
-    },
-    {
-      id: 'scan-2',
-      organizationId: 'org-1',
-      tourId: 'tour-1',
-      roomId: 'room-1',
-      roomName: 'Grand Living Hall',
-      name: 'Lounge & Seating Area',
-      isStartScan: false,
-      hiddenFromWalkthrough: false,
-      yaw: 45,
-      pitch: 0,
-      hfov: 90,
-      posX: 2.4,
-      posY: 0.5,
-      posZ: 1.5,
-      imageRes: '8192 × 4096 (8K)',
-      currentTileLevel: 4,
-      processingStatus: 'ready',
-      tileManifest: this.generateTileManifest('org-1', 'tour-1', 'scan-2', 8192, 4096)
-    },
-    {
-      id: 'scan-3',
-      organizationId: 'org-1',
-      tourId: 'tour-1',
-      roomId: 'room-2',
-      roomName: 'Designer Dining Space',
-      name: 'Dining Center',
-      isStartScan: false,
-      hiddenFromWalkthrough: false,
-      yaw: -30,
-      pitch: -4,
-      hfov: 90,
-      posX: 4.8,
-      posY: 1.2,
-      posZ: 1.5,
-      imageRes: '8192 × 4096 (8K)',
-      currentTileLevel: 4,
-      processingStatus: 'ready',
-      tileManifest: this.generateTileManifest('org-1', 'tour-1', 'scan-3', 8192, 4096)
-    },
-    {
-      id: 'scan-4',
-      organizationId: 'org-1',
-      tourId: 'tour-1',
-      roomId: 'room-3',
-      roomName: 'Italian Modular Kitchen',
-      name: 'Island Counter',
-      isStartScan: false,
-      hiddenFromWalkthrough: false,
-      yaw: 90,
-      pitch: -5,
-      hfov: 90,
-      posX: 7.1,
-      posY: 2.0,
-      posZ: 1.5,
-      imageRes: '8192 × 4096 (8K)',
-      currentTileLevel: 4,
-      processingStatus: 'ready',
-      tileManifest: this.generateTileManifest('org-1', 'tour-1', 'scan-4', 8192, 4096)
-    },
-    {
-      id: 'scan-5',
-      organizationId: 'org-1',
-      tourId: 'tour-1',
-      roomId: 'room-4',
-      roomName: 'Master Bedroom',
-      name: 'Bed Facing View',
-      isStartScan: false,
-      hiddenFromWalkthrough: false,
-      yaw: 120,
-      pitch: 0,
-      hfov: 90,
-      posX: 3.0,
-      posY: 5.2,
-      posZ: 1.5,
-      imageRes: '8192 × 4096 (8K)',
-      currentTileLevel: 4,
-      processingStatus: 'ready',
-      tileManifest: this.generateTileManifest('org-1', 'tour-1', 'scan-5', 8192, 4096)
-    }
-  ];
+  private scans: Scan[] = [];
 
-  private links: Link[] = [
-    {
-      id: 'link-1',
-      scanId: 'scan-1',
-      targetScanId: 'scan-2',
-      targetScanName: 'Lounge & Seating Area',
-      yaw: 45,
-      pitch: -12,
-      label: 'Walk to Lounge',
-      style: 'FLOOR_RING',
-      autoReturnLink: true
-    },
-    {
-      id: 'link-2',
-      scanId: 'scan-2',
-      targetScanId: 'scan-1',
-      targetScanName: 'Living Room Entrance',
-      yaw: -135,
-      pitch: -12,
-      label: 'Back to Entrance',
-      style: 'FLOOR_RING',
-      autoReturnLink: true
-    },
-    {
-      id: 'link-3',
-      scanId: 'scan-2',
-      targetScanId: 'scan-3',
-      targetScanName: 'Designer Dining Space',
-      yaw: 85,
-      pitch: -10,
-      label: 'Go to Dining',
-      style: 'FLOOR_RING',
-      autoReturnLink: true
-    },
-    {
-      id: 'link-4',
-      scanId: 'scan-3',
-      targetScanId: 'scan-4',
-      targetScanName: 'Italian Modular Kitchen',
-      yaw: 60,
-      pitch: -8,
-      label: 'Open Kitchen',
-      style: 'FLOOR_RING',
-      autoReturnLink: true
-    }
-  ];
+  private links: Link[] = [];
 
-  private contentItems: ContentItem[] = [
-    {
-      id: 'item-1',
-      scanId: 'scan-2',
-      type: 'PRODUCT',
-      yaw: 62,
-      pitch: -8,
-      title: 'Artisan Teakwood Italian Sofa',
-      description: 'Handcrafted top-grain Italian leather 3-seater with Burma teak frame and brushed brass legs.',
-      priceInr: 145000,
-      brand: 'Atelier Bespoke Furnishings',
-      dimensions: '88"W × 38"D × 32"H',
-      whatsappCta: true
-    },
-    {
-      id: 'item-2',
-      scanId: 'scan-3',
-      type: 'PRODUCT',
-      yaw: -25,
-      pitch: -14,
-      title: 'Statuario Marble 8-Seater Dining',
-      description: 'Seamless Italian Statuario marble tabletop with chamfered edge and solid brass base.',
-      priceInr: 210000,
-      brand: 'RangRag Natural Stones',
-      dimensions: '96"L × 44"W × 30"H',
-      whatsappCta: true
-    },
-    {
-      id: 'item-3',
-      scanId: 'scan-4',
-      type: 'INFO',
-      yaw: 110,
-      pitch: -2,
-      title: 'Quartz Worktop & Concealed Chimney',
-      description: 'Stain-resistant engineered quartz with smart touchless induction hob and soft-close Blum hinges.',
-      whatsappCta: false
-    }
-  ];
+  private contentItems: ContentItem[] = [];
 
-  private leads: Lead[] = [
-    {
-      id: 'lead-1',
-      orgId: 'org-1',
-      tourId: 'tour-1',
-      tourName: 'Aadhya Luxury Penthouse',
-      name: 'Harshil Patel',
-      phone: '+91 98981 12345',
-      email: 'harshil.p@outlook.com',
-      message: 'Interested in purchasing the Artisan Teakwood Italian Sofa shown in the living room.',
-      productTitle: 'Artisan Teakwood Italian Sofa',
-      roomName: 'Grand Living Hall',
-      status: 'NEW',
-      createdAt: '10 mins ago'
-    },
-    {
-      id: 'lead-2',
-      orgId: 'org-1',
-      tourId: 'tour-1',
-      tourName: 'Aadhya Luxury Penthouse',
-      name: 'Bhavin Shah',
-      phone: '+91 97240 88776',
-      email: 'bhavin@shahbuilders.in',
-      message: 'Would like to book a site visit this Saturday afternoon.',
-      productTitle: null,
-      roomName: 'Entire Penthouse',
-      status: 'CONTACTED',
-      createdAt: 'Yesterday'
-    },
-    {
-      id: 'lead-3',
-      orgId: 'org-1',
-      tourId: 'tour-2',
-      tourName: 'The Pavilions Modern Villa',
-      name: 'Meera Trivedi',
-      phone: '+91 94280 33441',
-      email: 'meera.trivedi@gmail.com',
-      message: 'Can we get custom dimensions for the Statuario Dining Table?',
-      productTitle: 'Statuario Marble 8-Seater Dining',
-      roomName: 'Designer Dining Space',
-      status: 'QUALIFIED',
-      createdAt: '2 days ago'
-    }
-  ];
+  private leads: Lead[] = [];
 
-  private processingJobs: ProcessingJob[] = [
-    {
-      id: 'job-101',
-      tourId: 'tour-3',
-      tourName: 'Heritage Haveli Restoration',
-      type: 'MULTIRES_TILES',
-      status: 'RUNNING',
-      progress: 72,
-      step: 'Generating level 2048 & 4096 cube tiles',
-      attempts: 1,
-      timestamp: 'Running · 3m elapsed'
-    },
-    {
-      id: 'job-102',
-      tourId: 'tour-1',
-      tourName: 'Aadhya Luxury Penthouse',
-      type: 'ALIGNMENT_SPATIAL',
-      status: 'DONE',
-      progress: 100,
-      step: 'All 8 scans aligned; dollhouse ready',
-      attempts: 1,
-      timestamp: 'Completed 1h ago'
-    }
-  ];
+  private processingJobs: ProcessingJob[] = [];
 
-  private floorPlans: FloorPlan[] = [
-    {
-      id: 'plan-1',
-      tourId: 'tour-1',
-      levelName: 'Ground Floor',
-      title: 'Penthouse Level 1 Architectural Layout',
-      format: 'PNG',
-      imageUrl: '',
-      pins: [
-        {
-          id: 'pin-1',
-          scanId: 'scan-1',
-          scanName: 'Living Room Entrance',
-          x: 0.25,
-          y: 0.35,
-          headingDeg: 15,
-          levelName: 'Ground Floor'
-        },
-        {
-          id: 'pin-2',
-          scanId: 'scan-2',
-          scanName: 'Lounge & Seating Area',
-          x: 0.42,
-          y: 0.38,
-          headingDeg: 45,
-          levelName: 'Ground Floor'
-        },
-        {
-          id: 'pin-3',
-          scanId: 'scan-3',
-          scanName: 'Dining Center',
-          x: 0.65,
-          y: 0.45,
-          headingDeg: -30,
-          levelName: 'Ground Floor'
-        }
-      ]
-    }
-  ];
+  private floorPlans: FloorPlan[] = [];
 
   private notifications: NotificationItem[] = [
     {
@@ -973,6 +612,84 @@ class RenderWalkRepositoryStore {
     return newScan;
   }
 
+  public addUploadedScanToTour(
+    tourId: string,
+    roomName: string,
+    scanName: string,
+    posX: number,
+    posY: number,
+    fileData: {
+      file: File;
+      fileUrl: string;
+      width: number;
+      height: number;
+      fileSizeBytes: number;
+    }
+  ): Scan {
+    this.assertCanAddScanToTour(tourId);
+    const existing = this.scans.filter((s) => s.tourId === tourId);
+    const isFirst = existing.length === 0;
+    const scanId = `scan-${Math.random().toString(36).substring(2, 9)}`;
+
+    const manifest = this.generateTileManifest(
+      this.currentOrgId,
+      tourId,
+      scanId,
+      fileData.width,
+      fileData.height
+    );
+    // Link the real preview and thumbnail directly to the uploaded file URL
+    manifest.previewUrl = fileData.fileUrl;
+    manifest.thumbnailUrl = fileData.fileUrl;
+
+    const newScan: Scan = {
+      id: scanId,
+      organizationId: this.currentOrgId,
+      tourId,
+      roomId: `room-${Date.now()}`,
+      roomName,
+      name: scanName,
+      isStartScan: isFirst,
+      hiddenFromWalkthrough: false,
+      yaw: 0,
+      pitch: 0,
+      hfov: 90,
+      posX,
+      posY,
+      posZ: 1.5,
+      imageRes: `${fileData.width} × ${fileData.height}`,
+      processingStatus: 'ready',
+      currentTileLevel: 4,
+      tileManifest: manifest,
+      originalFile: fileData.file,
+      fileUrl: fileData.fileUrl,
+      fileSizeBytes: fileData.fileSizeBytes
+    };
+
+    // Preserve ProcessingJob structure without faking server completion
+    const newJob: ProcessingJob = {
+      id: `job-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      tourId,
+      tourName: this.tours.find((t) => t.id === tourId)?.name || 'Active Tour',
+      type: 'MULTIRES_TILES',
+      status: 'QUEUED',
+      progress: 0,
+      step: `Image loaded (${fileData.file.name}, ${(fileData.fileSizeBytes / (1024 * 1024)).toFixed(1)} MB). Queued for pipeline.`,
+      attempts: 0,
+      timestamp: 'Just now'
+    };
+    this.processingJobs = [newJob, ...this.processingJobs];
+
+    this.scans = [...this.scans, newScan];
+    this.tours = this.tours.map((t) =>
+      t.id === tourId
+        ? { ...t, scanCount: t.scanCount + 1, draftChanges: t.draftChanges + 1 }
+        : t
+    );
+    this.notify();
+    return newScan;
+  }
+
   public toggleHideScan(scanId: string): void {
     this.scans = this.scans.map((s) =>
       s.id === scanId ? { ...s, hiddenFromWalkthrough: !s.hiddenFromWalkthrough } : s
@@ -985,6 +702,72 @@ class RenderWalkRepositoryStore {
       s.tourId === tourId ? { ...s, isStartScan: s.id === scanId } : s
     );
     this.notify();
+  }
+
+  public deleteScan(scanId: string): { deletedScan: Scan | undefined; nextActiveScanId: string | null } {
+    const scanToDelete = this.scans.find((s) => s.id === scanId);
+    if (!scanToDelete) {
+      return { deletedScan: undefined, nextActiveScanId: null };
+    }
+
+    const tourId = scanToDelete.tourId;
+
+    // 1. Revoke local object URL if present
+    if (scanToDelete.fileUrl && scanToDelete.fileUrl.startsWith('blob:')) {
+      try {
+        URL.revokeObjectURL(scanToDelete.fileUrl);
+      } catch (e) {
+        // Safe fallback in non-browser/test environments
+      }
+    }
+
+    // 2. Remove scan from scans collection
+    this.scans = this.scans.filter((s) => s.id !== scanId);
+
+    // 3. Remove navigation links originating from or pointing to this scan
+    this.links = this.links.filter(
+      (link) => link.scanId !== scanId && link.targetScanId !== scanId
+    );
+
+    // 4. Remove content items / product cards pinned to this scan
+    this.contentItems = this.contentItems.filter((item) => item.scanId !== scanId);
+
+    // 5. Remove floor plan pins referencing this scan
+    this.floorPlans = this.floorPlans.map((fp) => ({
+      ...fp,
+      pins: fp.pins.filter((pin) => pin.scanId !== scanId)
+    }));
+
+    // 6. Update tour's scanCount and roomCount safely
+    const remainingTourScans = this.scans.filter((s) => s.tourId === tourId);
+    this.tours = this.tours.map((t) =>
+      t.id === tourId
+        ? {
+            ...t,
+            scanCount: remainingTourScans.length,
+            roomCount: remainingTourScans.length,
+            draftChanges: t.draftChanges + 1
+          }
+        : t
+    );
+
+    // 7. If this was the start scan, update start scan to the first remaining scan if any, or clear
+    if (scanToDelete.isStartScan && remainingTourScans.length > 0) {
+      const newStartId = remainingTourScans[0].id;
+      this.scans = this.scans.map((s) =>
+        s.id === newStartId ? { ...s, isStartScan: true } : s
+      );
+    }
+
+    // 8. Clean up associated queued processing jobs for this specific scan
+    this.processingJobs = this.processingJobs.filter(
+      (j) => !(j.tourId === tourId && j.step?.includes(scanToDelete.name))
+    );
+
+    this.notify();
+
+    const nextActiveScanId = remainingTourScans.length > 0 ? remainingTourScans[0].id : null;
+    return { deletedScan: scanToDelete, nextActiveScanId };
   }
 
   public updateScan(scanId: string, updates: Partial<Scan>): void {

@@ -1,4 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
+import * as THREE from 'three';
 import {
   Compass,
   Plus,
@@ -9,7 +10,9 @@ import {
   Info,
   X,
   MessageCircle,
-  ExternalLink
+  ExternalLink,
+  AlertCircle,
+  Loader2
 } from 'lucide-react';
 import { Scan, Link, ContentItem, Tour } from '../types/models';
 import { GlassPanel } from './UIPrimitives';
@@ -45,117 +48,174 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
   className = '',
   studioWhatsapp = '+91 98250 12345'
 }) => {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
+  const mountRef = useRef<HTMLDivElement | null>(null);
   const isDraggingRef = useRef(false);
   const lastMousePosRef = useRef({ x: 0, y: 0 });
+  const touchDistanceRef = useRef<number | null>(null);
 
+  const [isLoadingTexture, setIsLoadingTexture] = useState(false);
+  const [textureError, setTextureError] = useState<string | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<ContentItem | null>(null);
 
-  // Render the architectural 360 panorama projection
+  // References to Three.js entities for dynamic camera updates
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const meshRef = useRef<THREE.Mesh | null>(null);
+  const currentTextureRef = useRef<THREE.Texture | null>(null);
+
+  // 1. Initialize Three.js Scene, Camera, Equirectangular Sphere, Renderer
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    const container = mountRef.current;
+    if (!container) return;
 
-    let animationFrameId: number = 0;
+    const width = container.clientWidth || 800;
+    const height = container.clientHeight || 600;
 
-    const render = () => {
-      const w = canvas.width;
-      const h = canvas.height;
-      if (w === 0 || h === 0) return;
+    // A. Scene
+    const scene = new THREE.Scene();
+    sceneRef.current = scene;
 
-      const cx = w / 2;
-      const cy = h / 2;
-      const fovScale = 90 / Math.max(40, Math.min(110, zoomFov));
-      const floorHorizon = cy + panPitch * 4.5 * fovScale;
+    // B. Perspective Camera at center (0, 0, 0)
+    const camera = new THREE.PerspectiveCamera(zoomFov, width / height, 0.1, 1000);
+    camera.position.set(0, 0, 0);
+    cameraRef.current = camera;
 
-      // 1. Ceiling ambient architectural gradient
-      const ceilingGrad = ctx.createLinearGradient(0, 0, 0, Math.max(1, floorHorizon));
-      ceilingGrad.addColorStop(0, '#0C0A09');
-      ceilingGrad.addColorStop(1, '#1A1613');
-      ctx.fillStyle = ceilingGrad;
-      ctx.fillRect(0, 0, w, Math.max(0, floorHorizon));
+    // C. WebGL Renderer
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(width, height);
+    rendererRef.current = renderer;
+    container.appendChild(renderer.domElement);
 
-      // 2. Flooring ambient architectural gradient (warm Italian marble / hardwood floor)
-      const floorGrad = ctx.createLinearGradient(0, floorHorizon, 0, h);
-      floorGrad.addColorStop(0, '#26201B');
-      floorGrad.addColorStop(1, '#13110E');
-      ctx.fillStyle = floorGrad;
-      ctx.fillRect(0, floorHorizon, w, Math.max(0, h - floorHorizon));
+    // D. True Equirectangular Sphere (inward facing UVs)
+    const geometry = new THREE.SphereGeometry(500, 60, 40);
+    // Invert geometry along X axis so texture faces inward toward the camera at (0, 0, 0)
+    geometry.scale(-1, 1, 1);
 
-      // 3. Perspective architectural pillars, panoramic windows, and lighting casts
-      ctx.save();
-      for (let i = 0; i < 16; i++) {
-        const angleDeg = (i * 22.5 + panYaw) % 360;
-        const rad = (angleDeg * Math.PI) / 180;
+    const material = new THREE.MeshBasicMaterial({
+      color: 0x141210
+    });
 
-        if (Math.cos(rad) > 0) {
-          // In front of viewer
-          const xPos = cx + Math.sin(rad) * (w * 0.75 * fovScale);
+    const sphereMesh = new THREE.Mesh(geometry, material);
+    scene.add(sphereMesh);
+    meshRef.current = sphereMesh;
 
-          // Vertical architectural column
-          ctx.strokeStyle = 'rgba(214, 167, 122, 0.22)';
-          ctx.lineWidth = Math.max(1, 2.5 * fovScale);
-          ctx.beginPath();
-          ctx.moveTo(xPos, floorHorizon - h * 0.45 * fovScale);
-          ctx.lineTo(xPos, floorHorizon + 70);
-          ctx.stroke();
-
-          // Warm architectural recessed window light
-          if (i % 3 === 0) {
-            ctx.fillStyle = 'rgba(214, 167, 122, 0.08)';
-            ctx.fillRect(
-              xPos - 45 * fovScale,
-              floorHorizon - h * 0.4 * fovScale,
-              90 * fovScale,
-              h * 0.4 * fovScale
-            );
-          }
-        }
+    // E. Render Loop
+    let animationId: number;
+    const animate = () => {
+      animationId = requestAnimationFrame(animate);
+      if (rendererRef.current && sceneRef.current && cameraRef.current) {
+        rendererRef.current.render(sceneRef.current, cameraRef.current);
       }
-      ctx.restore();
-
-      // 4. Baseboard architectural line
-      ctx.strokeStyle = 'rgba(214, 167, 122, 0.35)';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(0, floorHorizon);
-      ctx.lineTo(w, floorHorizon);
-      ctx.stroke();
-
-      // 5. Subtle viewpoint crosshair in center
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(cx - 8, cy);
-      ctx.lineTo(cx + 8, cy);
-      ctx.moveTo(cx, cy - 8);
-      ctx.lineTo(cx, cy + 8);
-      ctx.stroke();
     };
+    animate();
 
-    render();
-
-    // Resize listener
+    // F. Resize Observer
     const handleResize = () => {
-      if (containerRef.current && canvas) {
-        canvas.width = containerRef.current.clientWidth;
-        canvas.height = containerRef.current.clientHeight;
-        render();
-      }
+      if (!container || !rendererRef.current || !cameraRef.current) return;
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      if (w === 0 || h === 0) return;
+      cameraRef.current.aspect = w / h;
+      cameraRef.current.updateProjectionMatrix();
+      rendererRef.current.setSize(w, h);
     };
-    handleResize();
+
     window.addEventListener('resize', handleResize);
 
     return () => {
-      cancelAnimationFrame(animationFrameId);
+      cancelAnimationFrame(animationId);
       window.removeEventListener('resize', handleResize);
+      if (currentTextureRef.current) {
+        currentTextureRef.current.dispose();
+      }
+      geometry.dispose();
+      material.dispose();
+      renderer.dispose();
+      if (renderer.domElement && renderer.domElement.parentNode === container) {
+        container.removeChild(renderer.domElement);
+      }
     };
+  }, []);
+
+  // 2. Load the actual uploaded image as equirectangular panorama texture
+  const activeImageUrl = currentScan?.fileUrl || currentScan?.tileManifest?.previewUrl;
+
+  useEffect(() => {
+    if (!activeImageUrl) {
+      setTextureError(null);
+      setIsLoadingTexture(false);
+      if (meshRef.current) {
+        const mat = meshRef.current.material as THREE.MeshBasicMaterial;
+        mat.map = null;
+        mat.color.set(0x141210);
+        mat.needsUpdate = true;
+      }
+      return;
+    }
+
+    setIsLoadingTexture(true);
+    setTextureError(null);
+
+    const loader = new THREE.TextureLoader();
+    loader.load(
+      activeImageUrl,
+      (texture) => {
+        if (currentTextureRef.current) {
+          currentTextureRef.current.dispose();
+        }
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.minFilter = THREE.LinearFilter;
+        texture.magFilter = THREE.LinearFilter;
+        texture.generateMipmaps = false;
+
+        currentTextureRef.current = texture;
+
+        if (meshRef.current) {
+          const mat = meshRef.current.material as THREE.MeshBasicMaterial;
+          mat.map = texture;
+          mat.color.set(0xffffff);
+          mat.needsUpdate = true;
+        }
+
+        setIsLoadingTexture(false);
+      },
+      undefined,
+      (err) => {
+        console.error('Failed to load equirectangular panorama texture:', err);
+        setIsLoadingTexture(false);
+        setTextureError('Unable to load uploaded panorama image.');
+      }
+    );
+  }, [activeImageUrl]);
+
+  // 3. Update Camera Rotation & FOV based on panYaw, panPitch, zoomFov
+  useEffect(() => {
+    const camera = cameraRef.current;
+    if (!camera) return;
+
+    // FOV update
+    const clampedFov = Math.max(40, Math.min(110, zoomFov));
+    if (camera.fov !== clampedFov) {
+      camera.fov = clampedFov;
+      camera.updateProjectionMatrix();
+    }
+
+    // Convert panYaw and panPitch into 3D Spherical Coordinates
+    // panPitch clamped between -85° and 85° to prevent excessive vertical flipping
+    const clampedPitch = Math.max(-85, Math.min(85, panPitch));
+    const phi = THREE.MathUtils.degToRad(90 - clampedPitch);
+    const theta = THREE.MathUtils.degToRad(panYaw);
+
+    const targetX = 500 * Math.sin(phi) * Math.cos(theta);
+    const targetY = 500 * Math.cos(phi);
+    const targetZ = 500 * Math.sin(phi) * Math.sin(theta);
+
+    camera.lookAt(targetX, targetY, targetZ);
   }, [panYaw, panPitch, zoomFov]);
 
-  // Pointer Drag handling
+  // 4. Pointer & Drag Controls (Mouse)
   const handleMouseDown = (e: React.MouseEvent) => {
     isDraggingRef.current = true;
     lastMousePosRef.current = { x: e.clientX, y: e.clientY };
@@ -166,47 +226,90 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
     const dx = e.clientX - lastMousePosRef.current.x;
     const dy = e.clientY - lastMousePosRef.current.y;
     lastMousePosRef.current = { x: e.clientX, y: e.clientY };
-    onPanChange(-dx * 0.28, -dy * 0.22);
+
+    // Sensitivity scaled by current FOV
+    const factor = (zoomFov / 80) * 0.22;
+    onPanChange(-dx * factor, -dy * factor);
   };
 
   const handleMouseUp = () => {
     isDraggingRef.current = false;
   };
 
-  // Touch handling
+  // 5. Touch Controls (Single Finger Pan, Pinch to Zoom)
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length === 1) {
       isDraggingRef.current = true;
       lastMousePosRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      touchDistanceRef.current = null;
+    } else if (e.touches.length === 2) {
+      isDraggingRef.current = false;
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      touchDistanceRef.current = Math.sqrt(dx * dx + dy * dy);
     }
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (!isDraggingRef.current || e.touches.length !== 1) return;
-    const dx = e.touches[0].clientX - lastMousePosRef.current.x;
-    const dy = e.touches[0].clientY - lastMousePosRef.current.y;
-    lastMousePosRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-    onPanChange(-dx * 0.28, -dy * 0.22);
+    if (e.touches.length === 1 && isDraggingRef.current) {
+      const dx = e.touches[0].clientX - lastMousePosRef.current.x;
+      const dy = e.touches[0].clientY - lastMousePosRef.current.y;
+      lastMousePosRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+
+      const factor = (zoomFov / 80) * 0.22;
+      onPanChange(-dx * factor, -dy * factor);
+    } else if (e.touches.length === 2 && touchDistanceRef.current !== null) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const newDistance = Math.sqrt(dx * dx + dy * dy);
+      const delta = touchDistanceRef.current - newDistance;
+      touchDistanceRef.current = newDistance;
+
+      if (Math.abs(delta) > 2) {
+        onZoomChange(delta * 0.3);
+      }
+    }
   };
 
   const handleTouchEnd = () => {
     isDraggingRef.current = false;
+    touchDistanceRef.current = null;
   };
 
-  // Mouse wheel zoom
+  // 6. Wheel Zoom
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
     onZoomChange(e.deltaY > 0 ? 5 : -5);
   };
 
-  // Dynamic Tile resolution level calculation
-  const currentTileLevel = zoomFov < 60 ? 4 : zoomFov < 80 ? 3 : 2;
-  const resLabel = currentTileLevel === 4 ? '8K Crisp' : currentTileLevel === 3 ? '4K HD' : '2K Fast';
   const headingDeg = Math.round(((panYaw % 360) + 360) % 360);
+
+  // Helper to project spherical yaw/pitch to 2D screen percentage coordinates
+  const getScreenCoordinates = (yaw: number, pitch: number) => {
+    if (!cameraRef.current) return null;
+    const phi = THREE.MathUtils.degToRad(90 - pitch);
+    const theta = THREE.MathUtils.degToRad(yaw);
+
+    const pos = new THREE.Vector3(
+      500 * Math.sin(phi) * Math.cos(theta),
+      500 * Math.cos(phi),
+      500 * Math.sin(phi) * Math.sin(theta)
+    );
+
+    pos.project(cameraRef.current);
+
+    // If pos.z > 1, the point is behind the camera frustum
+    if (pos.z > 1) return null;
+
+    const leftPct = (pos.x * 0.5 + 0.5) * 100;
+    const topPct = (-pos.y * 0.5 + 0.5) * 100;
+
+    return { leftPct, topPct };
+  };
 
   return (
     <div
-      ref={containerRef}
+      ref={mountRef}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
@@ -215,9 +318,44 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
       onWheel={handleWheel}
-      className={`relative w-full h-full overflow-hidden select-none cursor-grab active:cursor-grabbing bg-[#1A1714] ${className}`}
+      className={`relative w-full h-full overflow-hidden select-none cursor-grab active:cursor-grabbing bg-[#0E0C0A] ${className}`}
     >
-      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full block" />
+      {/* Texture Loading Overlay */}
+      {isLoadingTexture && (
+        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-none">
+          <Loader2 className="w-8 h-8 text-[#D6A77A] animate-spin mb-2" />
+          <span className="text-xs font-medium text-[#F6F2EC]">
+            Loading 360° Panorama...
+          </span>
+        </div>
+      )}
+
+      {/* Empty / Error State (No demo image fallback) */}
+      {!activeImageUrl && !isLoadingTexture && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 bg-[#0E0C0A] text-center">
+          <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-center text-amber-400 mb-3 shadow-lg">
+            <AlertCircle className="w-7 h-7" />
+          </div>
+          <h3 className="text-base font-bold font-serif-heading text-[#F6F2EC] mb-1">
+            No Panorama Image Attached
+          </h3>
+          <p className="text-xs text-[#F6F2EC]/60 max-w-sm mb-2">
+            This scan does not have an uploaded 360° equirectangular image file.
+          </p>
+        </div>
+      )}
+
+      {textureError && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 bg-[#0E0C0A] text-center">
+          <div className="w-14 h-14 rounded-2xl bg-red-500/10 border border-red-500/25 flex items-center justify-center text-[#E07A6A] mb-3">
+            <AlertCircle className="w-7 h-7" />
+          </div>
+          <h3 className="text-base font-bold text-[#F6F2EC] mb-1">
+            Unable to Display Panorama
+          </h3>
+          <p className="text-xs text-[#F6F2EC]/60 max-w-sm">{textureError}</p>
+        </div>
+      )}
 
       {/* OVERLAY 1: Top-Left Room & View Card */}
       <div className="absolute top-4 left-4 z-10 pointer-events-auto">
@@ -228,18 +366,18 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
               {currentScan?.roomName || 'Overview'}
             </div>
             <div className="text-[11px] text-[#F6F2EC]/70">
-              {currentScan?.name || 'Main Camera Spot'}
+              {currentScan?.originalFile ? currentScan.originalFile.name : (currentScan?.name || 'Main Camera Spot')}
             </div>
           </div>
         </GlassPanel>
       </div>
 
-      {/* OVERLAY 2: Top-Center Progressive 8K Tile Manifest Status */}
+      {/* OVERLAY 2: Top-Center Camera View Status */}
       <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none hidden sm:block">
         <GlassPanel className="px-3.5 py-1.5 flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-[#9CC0B4]" />
           <span className="text-[11px] font-medium text-[#F6F2EC]">
-            Tiles: Level {currentTileLevel} ({resLabel}) • FOV {Math.round(zoomFov)}°
+            360° Equirectangular • FOV {Math.round(zoomFov)}°
           </span>
         </GlassPanel>
       </div>
@@ -258,7 +396,7 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
       <div className="absolute right-4 top-1/2 -translate-y-1/2 z-10 flex flex-col gap-2">
         <button
           type="button"
-          onClick={() => onZoomChange(-15)}
+          onClick={() => onZoomChange(-10)}
           title="Zoom in"
           className="w-9 h-9 rounded-full bg-[#1B1815]/80 hover:bg-[#D6A77A]/20 active:scale-95 border border-white/15 flex items-center justify-center text-[#F6F2EC] transition-all cursor-pointer backdrop-blur-md"
         >
@@ -266,7 +404,7 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
         </button>
         <button
           type="button"
-          onClick={() => onZoomChange(15)}
+          onClick={() => onZoomChange(10)}
           title="Zoom out"
           className="w-9 h-9 rounded-full bg-[#1B1815]/80 hover:bg-[#D6A77A]/20 active:scale-95 border border-white/15 flex items-center justify-center text-[#F6F2EC] transition-all cursor-pointer backdrop-blur-md"
         >
@@ -284,16 +422,13 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
 
       {/* OVERLAY 5: Interactive Navigation Hotspots (Floor Rings) */}
       {links.map((link) => {
-        const relYaw = ((link.yaw - panYaw + 540) % 360) - 180;
-        if (relYaw < -80 || relYaw > 80) return null;
-
-        const leftPct = 50 + (relYaw / 80) * 45;
-        const topPct = 68 + (link.pitch / 50) * 15;
+        const coords = getScreenCoordinates(link.yaw, link.pitch);
+        if (!coords) return null;
 
         return (
           <div
             key={link.id}
-            style={{ left: `${leftPct}%`, top: `${topPct}%` }}
+            style={{ left: `${coords.leftPct}%`, top: `${coords.topPct}%` }}
             onClick={(e) => {
               e.stopPropagation();
               onLinkClick(link.targetScanId);
@@ -312,16 +447,13 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
 
       {/* OVERLAY 6: Interactive Product POI Cards */}
       {contentItems.map((item) => {
-        const relYaw = ((item.yaw - panYaw + 540) % 360) - 180;
-        if (relYaw < -80 || relYaw > 80) return null;
-
-        const leftPct = 50 + (relYaw / 80) * 45;
-        const topPct = 48 + (item.pitch / 50) * 22;
+        const coords = getScreenCoordinates(item.yaw, item.pitch);
+        if (!coords) return null;
 
         return (
           <div
             key={item.id}
-            style={{ left: `${leftPct}%`, top: `${topPct}%` }}
+            style={{ left: `${coords.leftPct}%`, top: `${coords.topPct}%` }}
             onClick={(e) => {
               e.stopPropagation();
               setSelectedProduct(item);

@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   ArrowLeft,
   CheckCircle,
+  CheckCircle2,
   Undo2,
   Redo2,
   Globe,
@@ -18,27 +19,47 @@ import {
   Trash2,
   Upload,
   FileCode,
-  AlertCircle
+  AlertCircle,
+  Camera,
+  Radio,
+  Loader2
 } from 'lucide-react';
 import { useRepository } from '../hooks/useRepository';
-import { Tour, Scan, Link, ContentItem, RenderPackage } from '../types/models';
+import { Tour, Scan, Link, ContentItem } from '../types/models';
 import { StatusBadge } from '../components/StatusBadge';
 import { BrassButton, OutlinedBrassButton } from '../components/UIPrimitives';
 import { PanoramaViewer } from '../components/PanoramaViewer';
 import { FloorPlanViewer } from '../components/FloorPlanViewer';
 import { DollhouseViewer } from '../components/DollhouseViewer';
+import { CameraCaptureModal } from '../components/CameraCaptureModal';
 
 export type EditorTab = 'SCANS' | 'LINKS' | 'CONTENT' | 'PLAN' | 'DOLLHOUSE_3D' | 'SETTINGS';
+
+export interface StagedUploadFile {
+  id: string;
+  file: File;
+  previewUrl: string;
+  fileName: string;
+  fileSizeBytes: number;
+  width: number;
+  height: number;
+  isValid: boolean;
+  validationError?: string;
+  roomName: string;
+  scanName: string;
+}
 
 interface TourEditorScreenProps {
   tourId: string;
   onNavigateBack: () => void;
+  onNavigateToLiveCapture?: () => void;
   onOpenPublishModal: (tourId: string) => void;
 }
 
 export const TourEditorScreen: React.FC<TourEditorScreenProps> = ({
   tourId,
   onNavigateBack,
+  onNavigateToLiveCapture,
   onOpenPublishModal
 }) => {
   const { repository, tours, scans, links, contentItems, floorPlans, currentOrg } =
@@ -55,13 +76,42 @@ export const TourEditorScreen: React.FC<TourEditorScreenProps> = ({
   // Camera orientation & FOV state
   const [panYaw, setPanYaw] = useState(0);
   const [panPitch, setPanPitch] = useState(0);
-  const [zoomFov, setZoomFov] = useState(90);
+  const [zoomFov, setZoomFov] = useState(80);
 
   // Dialog states
+  const [showAddScanModal, setShowAddScanModal] = useState(false);
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [showAddLink, setShowAddLink] = useState(false);
   const [showPlanUpload, setShowPlanUpload] = useState(false);
-  const [showImportPackage, setShowImportPackage] = useState(false);
+  const [scanPendingDeletion, setScanPendingDeletion] = useState<Scan | null>(null);
+  const [showCameraCaptureModal, setShowCameraCaptureModal] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Staged Upload from Files states
+  const [stagedFiles, setStagedFiles] = useState<StagedUploadFile[]>([]);
+  const [showUploadReviewModal, setShowUploadReviewModal] = useState(false);
+  const [isValidatingFiles, setIsValidatingFiles] = useState(false);
+  const activeObjectUrlsRef = useRef<Set<string>>(new Set());
+
+  // Clean up object URLs on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      activeObjectUrlsRef.current.forEach((url) => {
+        URL.revokeObjectURL(url);
+      });
+      activeObjectUrlsRef.current.clear();
+    };
+  }, []);
+
+  // Synchronize activeScanId when tour scans are populated
+  useEffect(() => {
+    if (!activeScanId && tourScans.length > 0) {
+      const startScan = tourScans.find((s) => s.isStartScan) || tourScans[0];
+      if (startScan) {
+        setActiveScanId(startScan.id);
+      }
+    }
+  }, [tourScans, activeScanId]);
 
   // New product form
   const [prodTitle, setProdTitle] = useState('');
@@ -79,7 +129,7 @@ export const TourEditorScreen: React.FC<TourEditorScreenProps> = ({
   // Floor plan upload form
   const [planLevel, setPlanLevel] = useState('Ground Floor');
   const [planTitle, setPlanTitle] = useState('Architectural Floor Layout');
-  const [planFormat, setPlanFormat] = useState<'PNG' | 'SVG' | 'AutoCAD DXF'>('PNG');
+  const [planFormat, setPlanFormat] = useState<'PNG' | 'SVG'>('PNG');
 
   // Active scan & relevant items
   const currentScan = tourScans.find((s) => s.id === activeScanId) || tourScans[0];
@@ -125,26 +175,253 @@ export const TourEditorScreen: React.FC<TourEditorScreenProps> = ({
     setLinkLabel('');
   };
 
-  const handlePlanUpload = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (planFormat === 'AutoCAD DXF') return;
-    repository.addFloorPlan(tour.id, planLevel, planTitle, planFormat);
-    setShowPlanUpload(false);
+  const handleAddScanWithCamera = () => {
+    setShowAddScanModal(false);
+    setShowCameraCaptureModal(true);
   };
 
-  const handleImportSamplePackage = () => {
-    const samplePackage: RenderPackage = {
-      name: 'Skyline Royal Penthouse (V-Ray 6)',
-      source: 'sketchup+vray',
-      checksum: `sha256-skyline-${Date.now()}`,
-      scans: [
-        { id: 'Grand Foyer', room: 'Entrance Foyer', image: 'foyer.jpg', posX: 0, posY: 0, rotationYaw: 0 },
-        { id: 'Living Hall', room: 'Living Room', image: 'living.jpg', posX: 2.8, posY: 0.5, rotationYaw: 40 },
-        { id: 'Master Deck', room: 'Master Bedroom', image: 'deck.jpg', posX: 5.6, posY: 2.0, rotationYaw: 90 }
-      ]
-    };
-    repository.importRenderPackage(samplePackage);
-    setShowImportPackage(false);
+  const handleFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
+
+    setIsValidatingFiles(true);
+    setShowAddScanModal(false);
+    setShowUploadReviewModal(true);
+
+    const filesArray = Array.from(fileList);
+    const supportedExtensions = ['.jpg', '.jpeg', '.png', '.webp'];
+    const supportedMimes = ['image/jpeg', 'image/png', 'image/webp'];
+    const currentScanCount = tourScans.length;
+
+    const validatedItems: StagedUploadFile[] = await Promise.all(
+      filesArray.map(async (file, index) => {
+        const id = `upload-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 6)}`;
+        const ext = '.' + (file.name.split('.').pop() || '').toLowerCase();
+        const baseName = file.name.replace(/\.[^/.]+$/, '');
+        const roomIndex = currentScanCount + index + 1;
+        const roomName = '';
+        const scanName = '';
+
+        // 1. Format check
+        const isSupportedExt = supportedExtensions.includes(ext);
+        const isSupportedMime = file.type ? supportedMimes.includes(file.type) : isSupportedExt;
+
+        if (!isSupportedExt || !isSupportedMime) {
+          return {
+            id,
+            file,
+            previewUrl: '',
+            fileName: file.name,
+            fileSizeBytes: file.size,
+            width: 0,
+            height: 0,
+            isValid: false,
+            validationError: 'Unsupported format. Please upload JPG, JPEG, PNG, or WebP.',
+            roomName,
+            scanName
+          };
+        }
+
+        // 2. File size limit (50 MB)
+        const maxSizeBytes = 50 * 1024 * 1024;
+        if (file.size > maxSizeBytes) {
+          return {
+            id,
+            file,
+            previewUrl: '',
+            fileName: file.name,
+            fileSizeBytes: file.size,
+            width: 0,
+            height: 0,
+            isValid: false,
+            validationError: `File size exceeds 50MB limit (${(file.size / (1024 * 1024)).toFixed(1)} MB).`,
+            roomName,
+            scanName
+          };
+        }
+
+        // 3. Create real local Object URL from the selected file
+        const previewUrl = URL.createObjectURL(file);
+        activeObjectUrlsRef.current.add(previewUrl);
+
+        // 4. Validate natural dimensions and approximately 2:1 equirectangular aspect ratio
+        return new Promise<StagedUploadFile>((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            const width = img.naturalWidth;
+            const height = img.naturalHeight;
+            const ratio = width / height;
+
+            if (width < 1024 || height < 512) {
+              resolve({
+                id,
+                file,
+                previewUrl,
+                fileName: file.name,
+                fileSizeBytes: file.size,
+                width,
+                height,
+                isValid: false,
+                validationError: `Resolution too low (${width} × ${height}). Minimum 1024 × 512 required.`,
+                roomName,
+                scanName
+              });
+              return;
+            }
+
+            if (ratio < 1.85 || ratio > 2.15) {
+              resolve({
+                id,
+                file,
+                previewUrl,
+                fileName: file.name,
+                fileSizeBytes: file.size,
+                width,
+                height,
+                isValid: false,
+                validationError: `Invalid aspect ratio (${ratio.toFixed(2)}:1). 360° panoramas must be ~2:1 equirectangular.`,
+                roomName,
+                scanName
+              });
+              return;
+            }
+
+            resolve({
+              id,
+              file,
+              previewUrl,
+              fileName: file.name,
+              fileSizeBytes: file.size,
+              width,
+              height,
+              isValid: true,
+              roomName,
+              scanName
+            });
+          };
+
+          img.onerror = () => {
+            resolve({
+              id,
+              file,
+              previewUrl,
+              fileName: file.name,
+              fileSizeBytes: file.size,
+              width: 0,
+              height: 0,
+              isValid: false,
+              validationError: 'Unable to decode image file. File may be corrupt.',
+              roomName,
+              scanName
+            });
+          };
+
+          img.src = previewUrl;
+        });
+      })
+    );
+
+    setStagedFiles(validatedItems);
+    setIsValidatingFiles(false);
+
+    if (e.target) {
+      e.target.value = '';
+    }
+  };
+
+  const handleConfirmUploads = () => {
+    const validFiles = stagedFiles.filter((item) => item.isValid);
+    if (validFiles.length === 0) return;
+
+    validFiles.forEach((item, index) => {
+      const posX = (tourScans.length + index + 1) * 2.2;
+      const posY = (tourScans.length + index + 1) * 0.8;
+      const roomIndex = tourScans.length + index + 1;
+      const customerRoomName = item.roomName?.trim() || `Room ${roomIndex}`;
+
+      repository.addUploadedScanToTour(
+        tour.id,
+        customerRoomName,
+        customerRoomName,
+        posX,
+        posY,
+        {
+          file: item.file,
+          fileUrl: item.previewUrl,
+          width: item.width,
+          height: item.height,
+          fileSizeBytes: item.fileSizeBytes
+        }
+      );
+    });
+
+    // Revoke object URLs of invalid items that were not committed
+    stagedFiles.forEach((item) => {
+      if (!item.isValid && item.previewUrl) {
+        URL.revokeObjectURL(item.previewUrl);
+        activeObjectUrlsRef.current.delete(item.previewUrl);
+      }
+    });
+
+    setStagedFiles([]);
+    setShowUploadReviewModal(false);
+  };
+
+  const handleCancelUploadReview = () => {
+    stagedFiles.forEach((item) => {
+      if (item.previewUrl) {
+        URL.revokeObjectURL(item.previewUrl);
+        activeObjectUrlsRef.current.delete(item.previewUrl);
+      }
+    });
+    setStagedFiles([]);
+    setShowUploadReviewModal(false);
+  };
+
+  const handleRemoveStagedItem = (id: string) => {
+    const item = stagedFiles.find((f) => f.id === id);
+    if (item && item.previewUrl) {
+      URL.revokeObjectURL(item.previewUrl);
+      activeObjectUrlsRef.current.delete(item.previewUrl);
+    }
+    setStagedFiles((prev) => prev.filter((f) => f.id !== id));
+  };
+
+  const handleUpdateStagedItem = (
+    id: string,
+    field: 'roomName' | 'scanName',
+    value: string
+  ) => {
+    setStagedFiles((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, [field]: value } : item))
+    );
+  };
+
+  const handleConfirmDeleteScan = () => {
+    if (!scanPendingDeletion) return;
+    const deletedId = scanPendingDeletion.id;
+
+    if (scanPendingDeletion.fileUrl && scanPendingDeletion.fileUrl.startsWith('blob:')) {
+      activeObjectUrlsRef.current.delete(scanPendingDeletion.fileUrl);
+    }
+
+    const { nextActiveScanId } = repository.deleteScan(deletedId);
+
+    if (activeScanId === deletedId) {
+      if (nextActiveScanId) {
+        setActiveScanId(nextActiveScanId);
+      } else {
+        setActiveScanId('');
+      }
+    }
+
+    setScanPendingDeletion(null);
+  };
+
+  const handlePlanUpload = (e: React.FormEvent) => {
+    e.preventDefault();
+    repository.addFloorPlan(tour.id, planLevel, planTitle, planFormat);
+    setShowPlanUpload(false);
   };
 
   if (!tour) return null;
@@ -198,14 +475,14 @@ export const TourEditorScreen: React.FC<TourEditorScreenProps> = ({
         </div>
       </header>
 
-      {/* 2. TAB STRIP (6 TABS) */}
+      {/* 2. TAB STRIP (6 SECTIONS) */}
       <nav className="flex items-center gap-1 px-4 lg:px-6 bg-[#1B1815] border-b border-white/10 overflow-x-auto shrink-0 py-1.5">
         {[
           { tab: 'SCANS' as EditorTab, label: `Scans (${tourScans.length})`, icon: Layers },
-          { tab: 'LINKS' as EditorTab, label: `Links (${scanLinks.length})`, icon: Link2 },
-          { tab: 'CONTENT' as EditorTab, label: 'Content / Products', icon: Tag },
-          { tab: 'PLAN' as EditorTab, label: '2D Floor Plan', icon: MapIcon },
-          { tab: 'DOLLHOUSE_3D' as EditorTab, label: '3D Dollhouse', icon: BoxIcon },
+          { tab: 'LINKS' as EditorTab, label: `Links / Hotspots (${scanLinks.length})`, icon: Link2 },
+          { tab: 'CONTENT' as EditorTab, label: 'Content / Product Cards', icon: Tag },
+          { tab: 'PLAN' as EditorTab, label: 'Floor Plan', icon: MapIcon },
+          { tab: 'DOLLHOUSE_3D' as EditorTab, label: '3D View', icon: BoxIcon },
           { tab: 'SETTINGS' as EditorTab, label: 'Settings', icon: SettingsIcon }
         ].map((item) => {
           const isSelected = selectedTab === item.tab;
@@ -230,7 +507,24 @@ export const TourEditorScreen: React.FC<TourEditorScreenProps> = ({
 
       {/* 3. CENTER VIEWPORT */}
       <main className="flex-1 relative w-full h-full overflow-hidden">
-        {selectedTab === 'PLAN' ? (
+        {tourScans.length === 0 ? (
+          <div className="w-full h-full flex flex-col items-center justify-center p-8 bg-[#0E0C0A] text-center">
+            <div className="w-16 h-16 rounded-2xl bg-[#D6A77A]/10 border border-[#D6A77A]/25 flex items-center justify-center text-[#D6A77A] mb-4 shadow-xl">
+              <Camera className="w-8 h-8" />
+            </div>
+            <h2 className="text-xl font-bold font-serif-heading text-[#F6F2EC] mb-2">
+              No 360° Panoramas Yet
+            </h2>
+            <p className="text-sm text-[#F6F2EC]/60 max-w-md mb-6 leading-relaxed">
+              Every newly created tour starts with 0 scans. Add your first room panorama to begin creating the walkthrough.
+            </p>
+            <BrassButton
+              text="ADD SCAN"
+              onClick={() => setShowAddScanModal(true)}
+              icon={Plus}
+            />
+          </div>
+        ) : selectedTab === 'PLAN' ? (
           <FloorPlanViewer
             scans={tourScans}
             activeScanId={activeScanId}
@@ -271,7 +565,7 @@ export const TourEditorScreen: React.FC<TourEditorScreenProps> = ({
             zoomFov={zoomFov}
             onPanChange={(dyaw, dpitch) => {
               setPanYaw((y) => (y + dyaw) % 360);
-              setPanPitch((p) => Math.max(-75, Math.min(75, p + dpitch)));
+              setPanPitch((p) => Math.max(-85, Math.min(85, p + dpitch)));
             }}
             onZoomChange={(delta) => {
               setZoomFov((f) => Math.max(40, Math.min(110, f + delta)));
@@ -279,7 +573,7 @@ export const TourEditorScreen: React.FC<TourEditorScreenProps> = ({
             onResetView={() => {
               setPanYaw(0);
               setPanPitch(0);
-              setZoomFov(90);
+              setZoomFov(80);
             }}
             onLinkClick={(targetId) => {
               setActiveScanId(targetId);
@@ -296,110 +590,154 @@ export const TourEditorScreen: React.FC<TourEditorScreenProps> = ({
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold uppercase tracking-wider text-[#F6F2EC]/50">
-                Room Scans in Tour ({tourScans.length})
+                ROOM SCANS IN TOUR ({tourScans.length})
               </span>
               <div className="flex items-center gap-2">
-                <OutlinedBrassButton
-                  text="Process 8K Tiles"
-                  onClick={() => {
-                    if (currentScan) {
-                      repository.triggerPanoramaProcessing(
-                        tour.id,
-                        currentScan.id,
-                        currentScan.name
-                      );
-                    }
-                  }}
-                  icon={Layers}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowImportPackage(true)}
-                  className="px-3 py-1.5 text-xs text-[#D6A77A] hover:underline cursor-pointer"
-                >
-                  Import Render Package
-                </button>
                 <BrassButton
-                  text="Add Spot"
-                  onClick={() => {
-                    const num = tourScans.length + 1;
-                    repository.addScanToTour(
-                      tour.id,
-                      `Room ${num}`,
-                      `Panorama Spot ${num}`,
-                      num * 2.2,
-                      num * 0.8
-                    );
-                  }}
+                  text="Add Scan"
+                  onClick={() => setShowAddScanModal(true)}
                   icon={Plus}
                 />
               </div>
             </div>
 
-            <div className="flex gap-3 overflow-x-auto pb-2">
-              {tourScans.map((scan) => {
-                const isSelected = scan.id === activeScanId;
-                return (
-                  <div
-                    key={scan.id}
-                    onClick={() => setActiveScanId(scan.id)}
-                    className={`min-w-[190px] p-3 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
-                      isSelected
-                        ? 'bg-[#D6A77A]/15 border-[#D6A77A]'
-                        : 'bg-[#141210] border-white/10 hover:border-white/20'
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-bold text-[#D6A77A]">
-                          {scan.roomName}
-                        </span>
-                        {scan.isStartScan && (
-                          <span title="Start Scan" className="text-[#D6A77A]">
-                            <Flag className="w-3.5 h-3.5 fill-[#D6A77A]" />
+            {tourScans.length === 0 ? (
+              <div className="p-6 rounded-xl bg-[#141210] border border-dashed border-white/15 text-center flex flex-col items-center justify-center">
+                <Layers className="w-8 h-8 text-[#D6A77A]/50 mb-2" />
+                <p className="text-xs font-semibold text-[#F6F2EC] mb-1">
+                  No Scans in Tour
+                </p>
+                <p className="text-[11px] text-[#F6F2EC]/60 mb-3">
+                  This tour has 0 scans. Click "Add Scan" to add your first 360° panorama scan.
+                </p>
+                <BrassButton
+                  text="Add Scan"
+                  onClick={() => setShowAddScanModal(true)}
+                  icon={Plus}
+                />
+              </div>
+            ) : (
+              <div className="flex gap-3 overflow-x-auto pb-2">
+                {tourScans.map((scan, index) => {
+                  const isSelected = scan.id === activeScanId;
+                  const primaryTitle = scan.roomName?.trim() || `Room ${index + 1}`;
+                  return (
+                    <div
+                      key={scan.id}
+                      onClick={() => setActiveScanId(scan.id)}
+                      className={`min-w-[210px] p-3 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
+                        isSelected
+                          ? 'bg-[#D6A77A]/15 border-[#D6A77A]'
+                          : 'bg-[#141210] border-white/10 hover:border-white/20'
+                      }`}
+                    >
+                      <div>
+                        {scan.fileUrl ? (
+                          <div className="w-full h-24 rounded-lg mb-2.5 overflow-hidden bg-black/40 border border-white/10 relative">
+                            <img
+                              src={scan.fileUrl}
+                              alt={primaryTitle}
+                              className="w-full h-full object-cover"
+                            />
+                            <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/80 text-[9px] text-[#F6F2EC] font-mono">
+                              {scan.imageRes}
+                            </span>
+                          </div>
+                        ) : null}
+
+                        {/* Primary Scan Title: Room Name */}
+                        <div className="flex items-center justify-between mb-1">
+                          <span
+                            className="text-sm font-bold text-[#F6F2EC] truncate"
+                            title={primaryTitle}
+                          >
+                            {primaryTitle}
                           </span>
+                          {scan.isStartScan && (
+                            <span
+                              title="Start Scan"
+                              className="text-[#D6A77A] shrink-0 ml-1.5 flex items-center gap-1 text-[10px] font-semibold"
+                            >
+                              <Flag className="w-3.5 h-3.5 fill-[#D6A77A]" />
+                              <span>Start</span>
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Secondary Metadata: Original Filename */}
+                        {scan.originalFile && (
+                          <div
+                            className="text-[10px] text-[#F6F2EC]/50 truncate mb-1.5 font-mono"
+                            title={scan.originalFile.name}
+                          >
+                            {scan.originalFile.name} ({(scan.originalFile.size / (1024 * 1024)).toFixed(1)} MB)
+                          </div>
                         )}
                       </div>
-                      <div className="text-xs font-medium text-[#F6F2EC] mb-2">{scan.name}</div>
-                    </div>
 
-                    <div className="flex items-center justify-between pt-2 border-t border-white/10 text-[10px] text-[#9CC0B4]">
-                      <span>5-Level Tiles</span>
-                      <div className="flex items-center gap-1.5 text-[#F6F2EC]/60">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            repository.toggleHideScan(scan.id);
-                          }}
-                          title={scan.hiddenFromWalkthrough ? 'Show in tour' : 'Hide from tour'}
-                          className="hover:text-[#F6F2EC]"
-                        >
-                          {scan.hiddenFromWalkthrough ? (
-                            <EyeOff className="w-3.5 h-3.5 text-[#E07A6A]" />
-                          ) : (
-                            <Eye className="w-3.5 h-3.5" />
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            repository.setStartScan(scan.id, tour.id);
-                          }}
-                          title="Set as start scan"
-                          className={`hover:text-[#D6A77A] ${
-                            scan.isStartScan ? 'text-[#D6A77A]' : ''
+                      <div className="flex items-center justify-between pt-2 border-t border-white/10 text-[10px]">
+                        <span
+                          className={`font-semibold capitalize ${
+                            scan.processingStatus === 'ready'
+                              ? 'text-[#9CC0B4]'
+                              : scan.processingStatus === 'failed'
+                              ? 'text-[#E07A6A]'
+                              : 'text-[#F0A060]'
                           }`}
                         >
-                          <Flag className="w-3.5 h-3.5" />
-                        </button>
+                          {scan.processingStatus === 'ready'
+                            ? 'Ready'
+                            : scan.processingStatus === 'failed'
+                            ? 'Failed'
+                            : 'Processing'}
+                        </span>
+                        <div className="flex items-center gap-1.5 text-[#F6F2EC]/60">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              repository.toggleHideScan(scan.id);
+                            }}
+                            title={scan.hiddenFromWalkthrough ? 'Show in tour' : 'Hide from tour'}
+                            className="hover:text-[#F6F2EC]"
+                          >
+                            {scan.hiddenFromWalkthrough ? (
+                              <EyeOff className="w-3.5 h-3.5 text-[#E07A6A]" />
+                            ) : (
+                              <Eye className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              repository.setStartScan(scan.id, tour.id);
+                            }}
+                            title="Set as start scan"
+                            className={`hover:text-[#D6A77A] ${
+                              scan.isStartScan ? 'text-[#D6A77A]' : ''
+                            }`}
+                          >
+                            <Flag className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setScanPendingDeletion(scan);
+                            }}
+                            title="Delete scan"
+                            className="hover:text-[#E07A6A] p-0.5 rounded hover:bg-white/5 cursor-pointer transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -408,7 +746,7 @@ export const TourEditorScreen: React.FC<TourEditorScreenProps> = ({
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold uppercase tracking-wider text-[#F6F2EC]/50">
-                Navigation Hotspots from {currentScan?.roomName}
+                Navigation Hotspots from {currentScan?.roomName || 'Current Spot'}
               </span>
               <BrassButton
                 text="Link New Spot"
@@ -456,7 +794,7 @@ export const TourEditorScreen: React.FC<TourEditorScreenProps> = ({
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold uppercase tracking-wider text-[#F6F2EC]/50">
-                Product & Material Hotspots in {currentScan?.roomName}
+                Product & Material Hotspots in {currentScan?.roomName || 'Current Spot'}
               </span>
               <BrassButton
                 text="Add Product Card"
@@ -512,15 +850,15 @@ export const TourEditorScreen: React.FC<TourEditorScreenProps> = ({
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-wider text-[#F6F2EC]/50">
-                  2D Schematic Floor Plan Architecture
+                  2D Schematic Floor Plan
                 </div>
                 <div className="text-xs text-[#F6F2EC]/70">
-                  Interactive CAD layout with all {tourScans.length} scans. Click anywhere on canvas to adjust active scan pin.
+                  Interactive floor plan layout with all {tourScans.length} scans. Click anywhere on canvas to adjust active scan pin.
                 </div>
               </div>
               <div className="flex gap-2">
                 <BrassButton
-                  text="Upload Custom CAD"
+                  text="Upload Floor Plan"
                   onClick={() => setShowPlanUpload(true)}
                   icon={Upload}
                 />
@@ -529,14 +867,14 @@ export const TourEditorScreen: React.FC<TourEditorScreenProps> = ({
           </div>
         )}
 
-        {/* TAB 5: DOLLHOUSE 3D */}
+        {/* TAB 5: 3D VIEW */}
         {selectedTab === 'DOLLHOUSE_3D' && (
           <div className="space-y-2">
             <div className="text-[10px] font-bold uppercase tracking-wider text-[#F6F2EC]/50">
-              3D Spatial Dollhouse Configuration
+              3D Spatial View
             </div>
             <p className="text-xs text-[#F6F2EC]/70">
-              3D geometry mesh aligned with multi-resolution camera centers. Tap any room volume in the viewport above to fly into the scene.
+              3D spatial geometry aligned with room camera spots. Tap any room volume in the viewport above to navigate directly into the scene.
             </p>
           </div>
         )}
@@ -748,7 +1086,7 @@ export const TourEditorScreen: React.FC<TourEditorScreenProps> = ({
                   File Format
                 </label>
                 <div className="flex gap-2">
-                  {(['PNG', 'SVG', 'AutoCAD DXF'] as const).map((fmt) => (
+                  {(['PNG', 'SVG'] as const).map((fmt) => (
                     <button
                       key={fmt}
                       type="button"
@@ -765,18 +1103,11 @@ export const TourEditorScreen: React.FC<TourEditorScreenProps> = ({
                 </div>
               </div>
 
-              {planFormat === 'AutoCAD DXF' ? (
-                <div className="p-3 rounded-lg bg-[#F0A060]/15 border border-[#F0A060]/35 text-[11px] text-[#F0A060] flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>
-                    AutoCAD DXF/DWG format is not directly supported yet. Please export to SVG or high-resolution PNG from AutoCAD/Revit.
-                  </span>
-                </div>
-              ) : planFormat === 'SVG' ? (
+              {planFormat === 'SVG' && (
                 <div className="p-3 rounded-lg bg-[#9CC0B4]/15 border border-[#9CC0B4]/35 text-[11px] text-[#9CC0B4]">
                   SVG input will be sanitized (scripts and external references removed for security).
                 </div>
-              ) : null}
+              )}
 
               <div className="pt-2 flex justify-end gap-2">
                 <button
@@ -788,7 +1119,6 @@ export const TourEditorScreen: React.FC<TourEditorScreenProps> = ({
                 </button>
                 <BrassButton
                   type="submit"
-                  disabled={planFormat === 'AutoCAD DXF'}
                   text="Save Floor Plan"
                 />
               </div>
@@ -797,36 +1127,336 @@ export const TourEditorScreen: React.FC<TourEditorScreenProps> = ({
         </div>
       )}
 
-      {/* DIALOG 4: Import Render Package */}
-      {showImportPackage && (
+      {/* ADD SCAN MODAL: 3 Clear Choices */}
+      {showAddScanModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
           <div className="w-full max-w-md bg-[#1B1815] border border-white/12 rounded-2xl p-6 shadow-2xl">
-            <h3 className="text-base font-bold font-serif-heading text-[#F6F2EC] mb-2">
-              Import Render Package
-            </h3>
-            <p className="text-xs text-[#F6F2EC]/60 mb-4">
-              Controlled import pipeline with SHA-256 duplicate detection (SketchUp + V-Ray 6 packages with 3D camera coordinates).
-            </p>
-            <div className="p-3.5 rounded-xl bg-[#141210] border border-white/10 space-y-1 text-xs mb-4">
-              <div className="font-bold text-[#F6F2EC]">
-                Package: Skyline Royal Penthouse (V-Ray 6)
-              </div>
-              <div className="text-[#D6A77A]">Engine: SketchUp / V-Ray 6</div>
-              <div className="text-[#F6F2EC]/60">3 rooms with calibrated 3D coordinates</div>
-            </div>
-            <div className="flex justify-end gap-2">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-base font-bold font-serif-heading text-[#F6F2EC]">
+                Add Scan
+              </h3>
               <button
                 type="button"
-                onClick={() => setShowImportPackage(false)}
+                onClick={() => setShowAddScanModal(false)}
+                className="text-xs text-[#F6F2EC]/50 hover:text-[#F6F2EC] cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="text-xs text-[#F6F2EC]/60 mb-5">
+              Choose how you want to add a 360° panorama scan to this space:
+            </p>
+
+            <div className="space-y-3">
+              {/* Option 1: With Camera */}
+              <button
+                type="button"
+                onClick={handleAddScanWithCamera}
+                className="w-full p-4 rounded-xl bg-[#141210] border border-white/10 hover:border-[#D6A77A]/60 transition-all text-left flex items-start gap-3.5 group cursor-pointer"
+              >
+                <div className="w-10 h-10 rounded-lg bg-[#D6A77A]/15 border border-[#D6A77A]/30 flex items-center justify-center shrink-0 text-[#D6A77A] group-hover:bg-[#D6A77A] group-hover:text-[#0E0C0A] transition-colors">
+                  <Camera className="w-5 h-5" />
+                </div>
+                <div className="flex-1">
+                  <div className="text-sm font-bold text-[#F6F2EC] group-hover:text-[#D6A77A] transition-colors">
+                    With Camera
+                  </div>
+                  <div className="text-xs text-[#F6F2EC]/60 mt-0.5">
+                    For capturing a scan using the phone camera workflow.
+                  </div>
+                </div>
+              </button>
+
+              {/* Option 2: Live Capture */}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAddScanModal(false);
+                  if (onNavigateToLiveCapture) {
+                    onNavigateToLiveCapture();
+                  }
+                }}
+                className="w-full p-4 rounded-xl bg-[#141210] border border-white/10 hover:border-[#D6A77A]/60 transition-all text-left flex items-start gap-3.5 group cursor-pointer"
+              >
+                <div className="w-10 h-10 rounded-lg bg-[#D6A77A]/15 border border-[#D6A77A]/30 flex items-center justify-center shrink-0 text-[#D6A77A] group-hover:bg-[#D6A77A] group-hover:text-[#0E0C0A] transition-colors">
+                  <Radio className="w-5 h-5" />
+                </div>
+                <div className="flex-1">
+                  <div className="text-sm font-bold text-[#F6F2EC] group-hover:text-[#D6A77A] transition-colors">
+                    Live Capture
+                  </div>
+                  <div className="text-xs text-[#F6F2EC]/60 mt-0.5">
+                    For the live spatial capture workflow.
+                  </div>
+                </div>
+              </button>
+
+              {/* Option 3: Upload from Files */}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full p-4 rounded-xl bg-[#141210] border border-white/10 hover:border-[#D6A77A]/60 transition-all text-left flex items-start gap-3.5 group cursor-pointer"
+              >
+                <div className="w-10 h-10 rounded-lg bg-[#D6A77A]/15 border border-[#D6A77A]/30 flex items-center justify-center shrink-0 text-[#D6A77A] group-hover:bg-[#D6A77A] group-hover:text-[#0E0C0A] transition-colors">
+                  <Upload className="w-5 h-5" />
+                </div>
+                <div className="flex-1">
+                  <div className="text-sm font-bold text-[#F6F2EC] group-hover:text-[#D6A77A] transition-colors">
+                    Upload from Files
+                  </div>
+                  <div className="text-xs text-[#F6F2EC]/60 mt-0.5">
+                    For selecting existing JPG/JPEG/PNG/WebP panorama files.
+                  </div>
+                </div>
+              </button>
+            </div>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={handleFilesSelected}
+            />
+
+            <div className="mt-5 pt-3 border-t border-white/10 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowAddScanModal(false)}
                 className="px-4 py-2 text-xs font-semibold text-[#F6F2EC]/70 hover:text-[#F6F2EC] cursor-pointer"
               >
                 Cancel
               </button>
-              <BrassButton text="Execute Import" onClick={handleImportSamplePackage} />
             </div>
           </div>
         </div>
       )}
+
+      {/* VALIDATING FILES LOADER */}
+      {isValidatingFiles && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="w-full max-w-sm bg-[#1B1815] border border-white/12 rounded-2xl p-6 shadow-2xl text-center">
+            <Loader2 className="w-8 h-8 text-[#D6A77A] animate-spin mx-auto mb-3" />
+            <h3 className="text-sm font-bold font-serif-heading text-[#F6F2EC] mb-1">
+              Validating Selected Panoramas
+            </h3>
+            <p className="text-xs text-[#F6F2EC]/60">
+              Checking format, 2:1 aspect ratio, and resolution...
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* UPLOAD REVIEW MODAL */}
+      {showUploadReviewModal && !isValidatingFiles && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="w-full max-w-2xl bg-[#1B1815] border border-white/12 rounded-2xl p-6 shadow-2xl flex flex-col max-h-[85vh]">
+            <div className="flex items-center justify-between pb-3 border-b border-white/10 shrink-0">
+              <div>
+                <h3 className="text-base font-bold font-serif-heading text-[#F6F2EC]">
+                  Upload from Files Review ({stagedFiles.length})
+                </h3>
+                <p className="text-xs text-[#F6F2EC]/60 mt-0.5">
+                  Review selected panorama images and configure room spots before adding.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleCancelUploadReview}
+                className="text-xs text-[#F6F2EC]/50 hover:text-[#F6F2EC] cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto py-4 space-y-3 pr-1">
+              {stagedFiles.map((item) => (
+                <div
+                  key={item.id}
+                  className={`p-4 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center gap-4 transition-all ${
+                    item.isValid
+                      ? 'bg-[#141210] border-white/10'
+                      : 'bg-red-950/20 border-red-500/30'
+                  }`}
+                >
+                  {/* Real Preview Thumbnail */}
+                  <div className="w-full sm:w-44 h-24 shrink-0 rounded-lg overflow-hidden bg-black/50 border border-white/10 relative flex items-center justify-center">
+                    {item.previewUrl ? (
+                      <img
+                        src={item.previewUrl}
+                        alt={item.fileName}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <span className="text-[10px] text-white/40">No Preview Available</span>
+                    )}
+                    {item.width > 0 && (
+                      <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/80 text-[9px] text-[#F6F2EC] font-mono">
+                        {(item.width / item.height).toFixed(2)}:1
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Metadata and Editing */}
+                  <div className="flex-1 min-w-0 w-full space-y-2.5">
+                    {/* Filename & File Size */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-xs font-bold text-[#F6F2EC] truncate" title={item.fileName}>
+                        {item.fileName}
+                      </div>
+                      <span className="text-[11px] text-[#F6F2EC]/60 shrink-0 font-mono">
+                        {(item.fileSizeBytes / (1024 * 1024)).toFixed(2)} MB
+                      </span>
+                    </div>
+
+                    {/* Width x Height & Detected Aspect Ratio Badges */}
+                    <div className="flex flex-wrap items-center gap-2 text-[10px]">
+                      <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-[#F6F2EC]/80 font-mono">
+                        Dimensions: {item.width > 0 ? `${item.width} × ${item.height} px` : '—'}
+                      </span>
+                      <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-[#F6F2EC]/80 font-mono">
+                        Aspect Ratio: {item.height > 0 ? `${(item.width / item.height).toFixed(2)}:1` : '—'}
+                      </span>
+                    </div>
+
+                    {/* Room Name Configuration */}
+                    {item.isValid ? (
+                      <div className="pt-1">
+                        <label className="block text-[10px] uppercase font-bold text-[#F6F2EC]/60 mb-1">
+                          Room Name (Primary Scan Title)
+                        </label>
+                        <input
+                          type="text"
+                          value={item.roomName}
+                          placeholder="e.g. Living Room, Master Bedroom, Dining Room"
+                          onChange={(e) =>
+                            handleUpdateStagedItem(item.id, 'roomName', e.target.value)
+                          }
+                          className="w-full h-8 px-2.5 rounded-md bg-[#1B1815] border border-white/15 text-xs text-[#F6F2EC] placeholder:text-[#F6F2EC]/30 focus:outline-none focus:border-[#D6A77A]"
+                        />
+                        <div className="text-[10px] text-[#F6F2EC]/40 mt-0.5">
+                          Leave blank to automatically default to "Room {stagedFiles.findIndex((f) => f.id === item.id) + tourScans.length + 1}"
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {/* Validation Status */}
+                    <div className="flex items-center gap-1.5 text-xs pt-0.5">
+                      {item.isValid ? (
+                        <>
+                          <CheckCircle2 className="w-3.5 h-3.5 text-[#9CC0B4] shrink-0" />
+                          <span className="text-[#9CC0B4] font-medium text-[11px]">
+                            Valid 2:1 Equirectangular Panorama
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <AlertCircle className="w-3.5 h-3.5 text-[#E07A6A] shrink-0" />
+                          <span className="text-[#E07A6A] font-medium text-[11px]">
+                            {item.validationError}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Remove Button */}
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveStagedItem(item.id)}
+                    title="Remove from selection"
+                    className="p-1.5 text-[#F6F2EC]/40 hover:text-[#E07A6A] rounded-lg hover:bg-white/5 cursor-pointer shrink-0"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="pt-3 border-t border-white/10 shrink-0 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-3 py-1.5 text-xs font-semibold text-[#D6A77A] hover:text-[#D6A77A]/80 border border-[#D6A77A]/30 rounded-lg hover:bg-[#D6A77A]/10 cursor-pointer"
+                >
+                  Choose Another File
+                </button>
+                <span className="text-[11px] text-[#F6F2EC]/50">
+                  {stagedFiles.filter((f) => f.isValid).length} of {stagedFiles.length} file(s) ready
+                </span>
+              </div>
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <button
+                  type="button"
+                  onClick={handleCancelUploadReview}
+                  className="px-4 py-2 text-xs font-semibold text-[#F6F2EC]/70 hover:text-[#F6F2EC] cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <BrassButton
+                  text={
+                    stagedFiles.filter((f) => f.isValid).length > 1
+                      ? `Add ${stagedFiles.filter((f) => f.isValid).length} Scans / Continue`
+                      : 'Add Scan / Continue'
+                  }
+                  disabled={stagedFiles.filter((f) => f.isValid).length === 0}
+                  onClick={handleConfirmUploads}
+                  icon={Upload}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SCAN DELETION CONFIRMATION DIALOG */}
+      {scanPendingDeletion && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl bg-[#1B1815] border border-white/15 p-6 shadow-2xl space-y-4">
+            <div className="w-12 h-12 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-[#E07A6A]">
+              <Trash2 className="w-6 h-6" />
+            </div>
+
+            <div>
+              <h3 className="text-base font-bold text-[#F6F2EC]">
+                Delete this scan?
+              </h3>
+              <p className="text-xs text-[#F6F2EC]/70 mt-1 leading-relaxed">
+                This will remove the panorama and scan from this tour.
+              </p>
+              <div className="mt-2.5 px-3 py-2 rounded-lg bg-black/40 border border-white/10 text-xs text-[#D6A77A] font-semibold truncate">
+                {scanPendingDeletion.roomName || scanPendingDeletion.name}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setScanPendingDeletion(null)}
+                className="px-4 py-2 text-xs font-semibold text-[#F6F2EC]/70 hover:text-[#F6F2EC] rounded-lg border border-white/10 hover:bg-white/5 cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteScan}
+                className="px-4 py-2 text-xs font-semibold text-white bg-[#E07A6A] hover:bg-[#c96455] rounded-lg shadow-md cursor-pointer transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* GUIDED CAMERA CAPTURE EXPERIENCE MODAL */}
+      <CameraCaptureModal
+        tour={tour}
+        isOpen={showCameraCaptureModal}
+        onClose={() => setShowCameraCaptureModal(false)}
+      />
     </div>
   );
 };

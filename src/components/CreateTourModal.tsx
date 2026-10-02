@@ -28,7 +28,6 @@ export const CreateTourModal: React.FC<CreateTourModalProps> = ({
   const [tourName, setTourName] = useState('');
   const [propertyType, setPropertyType] = useState(PROPERTY_TYPES[0]);
   const [address, setAddress] = useState('Kalawad Road, Rajkot, Gujarat');
-  const [batchCount, setBatchCount] = useState<6 | 12>(6);
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -37,11 +36,6 @@ export const CreateTourModal: React.FC<CreateTourModalProps> = ({
     try {
       const name = tourName.trim() || 'Untitled Architectural Tour';
       const newTour = repository.createTour(name, propertyType, address);
-
-      // Add starter room scans with initial coordinates
-      repository.addScanToTour(newTour.id, 'Entrance Foyer', 'Main Door View', 0, 0);
-      repository.addScanToTour(newTour.id, 'Living Room', 'Seating Lounge', 2.4, 0.5);
-      repository.addScanToTour(newTour.id, 'Dining Space', 'Dining Table View', 4.8, 1.2);
 
       onCreated(newTour.id);
       onClose();
@@ -122,27 +116,15 @@ export const CreateTourModal: React.FC<CreateTourModalProps> = ({
             />
           </div>
 
-          {/* Resumable Batch Upload Simulation Area */}
+          {/* Spatial Tour Setup Notice */}
           <div className="p-3.5 rounded-xl bg-[#141210] border border-white/10">
             <div className="flex items-center gap-2 text-xs font-bold text-[#F6F2EC] mb-1">
               <UploadCloud className="w-4 h-4 text-[#D6A77A]" />
-              <span>BATCH 360° PANORAMA UPLOAD</span>
+              <span>SPATIAL TOUR SETUP</span>
             </div>
-            <p className="text-[11px] text-[#F6F2EC]/60 mb-3">
-              Supports 2:1 equirectangular JPG/PNG/WebP or architectural render packages with depth.
+            <p className="text-[11px] text-[#F6F2EC]/60">
+              Your tour begins with a clean slate (0 scans). You can add 360° panoramas in the Tour Editor via With Camera, Live Capture, or Upload from Files.
             </p>
-            <div className="flex items-center justify-between text-xs pt-2 border-t border-white/5">
-              <span className="text-[#9CC0B4] font-medium">
-                Batch Size: {batchCount} scans pre-validated (2:1 ratio)
-              </span>
-              <button
-                type="button"
-                onClick={() => setBatchCount(batchCount === 6 ? 12 : 6)}
-                className="px-2.5 py-1 rounded bg-[#D6A77A]/20 text-[#D6A77A] text-[11px] font-bold hover:bg-[#D6A77A]/30 cursor-pointer"
-              >
-                Switch to {batchCount === 6 ? '12 Scans' : '6 Scans'}
-              </button>
-            </div>
           </div>
 
           {error && (
