@@ -39,7 +39,16 @@ export class Insta360CameraError extends Error {
   }
 }
 
+export interface PhotoResolution {
+  readonly width: number;
+  readonly height: number;
+  readonly megapixelLabel?: string;
+}
+
 export type Insta360Model =
+  | 'Insta360 X6'
+  | 'Insta360 X5'
+  | 'Insta360 X4 Air'
   | 'Insta360 X4'
   | 'Insta360 X3'
   | 'Insta360 ONE RS 1-Inch 360'

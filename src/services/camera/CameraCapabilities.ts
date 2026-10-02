@@ -19,6 +19,16 @@ export type CameraConnectionState =
   | 'UNAVAILABLE'
   | 'ERROR';
 
+// Standardized capability discovery states
+export type CameraCapabilityState =
+  | 'SDK_NOT_CONFIGURED'
+  | 'SDK_READY'
+  | 'CAMERA_DISCONNECTED'
+  | 'CAMERA_CONNECTED'
+  | 'CAPABILITIES_LOADING'
+  | 'CAPABILITIES_READY'
+  | 'UNSUPPORTED_CAMERA';
+
 // For backward-compatibility aliases
 export type CameraConnectionStatus = CameraConnectionState;
 

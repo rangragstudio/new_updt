@@ -372,16 +372,19 @@ export const LiveCaptureScreen: React.FC<LiveCaptureScreenProps> = ({
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-bold text-[#F6F2EC]">Phone Camera</span>
                       <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#9CC0B4]/15 border border-[#9CC0B4]/30 text-[#9CC0B4]">
-                        Device Supported
+                        {activeProvider?.id === 'phone-camera' && activeProvider.getConnectionState() === 'CONNECTED'
+                          ? 'CAMERA_CONNECTED'
+                          : 'CAMERA_DISCONNECTED'}
                       </span>
                     </div>
                     <p className="text-xs text-[#F6F2EC]/60 mt-1 leading-relaxed">
                       Uses your phone's built-in camera and orientation sensors for guided room captures.
                     </p>
-                    <div className="flex items-center gap-2 text-[10px] text-[#F6F2EC]/50 font-mono mt-2">
-                      <span>• Live Preview</span>
-                      <span>• Horizon Sensors</span>
-                      <span>• Standard Single JPEG</span>
+                    <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-[10px] text-[#F6F2EC]/50 font-mono mt-2">
+                      <span>• Live Preview: <span className="text-[#9CC0B4]">✓ Supported</span></span>
+                      <span>• Horizon Sensors: <span className="text-[#9CC0B4]">✓ Supported</span></span>
+                      <span>• Standard Single JPEG: <span className="text-[#9CC0B4]">✓ Supported</span></span>
+                      <span>• Multi-frame AEB: <span className="text-[#F6F2EC]/40">✗ Not Supported</span></span>
                     </div>
                   </div>
                 </div>
@@ -419,82 +422,193 @@ export const LiveCaptureScreen: React.FC<LiveCaptureScreenProps> = ({
               </div>
 
               {/* 2. Insta360 Camera */}
-              <div className="p-4 rounded-xl bg-black/20 border border-white/5 flex items-start justify-between gap-4 opacity-75">
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-[#F6F2EC]/50 shrink-0">
-                    <Disc className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-[#F6F2EC]">Insta360 Camera</span>
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300">
-                        SDK Integration Required
-                      </span>
-                    </div>
-                    <p className="text-xs text-[#F6F2EC]/60 mt-1 leading-relaxed">
-                      Native driver for Insta360 X3, X4, ONE RS. Architecture ready for 3/5/7/9-frame AEB bracketing; official camera SDK is not configured.
-                    </p>
-                    <div className="flex items-center gap-2 text-[10px] text-amber-400/80 font-mono mt-2">
-                      <span>Status: INSTA360_SDK_NOT_CONFIGURED</span>
-                      <span>• 3/5/7/9 AEB Architecture Ready</span>
-                    </div>
-                  </div>
-                </div>
+              {(() => {
+                const insta = cameraManager.getProvider('insta360');
+                const isConnected = insta?.getConnectionState() === 'CONNECTED';
+                const caps = isConnected ? insta.getHDRCapabilities() : null;
 
-                <div className="shrink-0 pt-1">
-                  <span className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs font-medium text-[#F6F2EC]/40 cursor-not-allowed">
-                    Unavailable
-                  </span>
-                </div>
-              </div>
+                return (
+                  <div className="p-4 rounded-xl bg-black/20 border border-white/5 flex items-start justify-between gap-4 opacity-80">
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-[#F6F2EC]/50 shrink-0">
+                        <Disc className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-[#F6F2EC]">Insta360 Camera</span>
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 font-mono">
+                            {isConnected ? 'CAMERA_CONNECTED' : 'SDK_NOT_CONFIGURED'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-[#F6F2EC]/60 mt-1 leading-relaxed">
+                          {isConnected
+                            ? `Connected to ${insta?.getInfo().model}. Dynamic hardware capabilities active.`
+                            : 'Native integration ready for Insta360 X3, X4, and ONE RS. Supported AEB modes will be detected from the connected camera.'}
+                        </p>
+
+                        {isConnected && caps ? (
+                          <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-[10px] font-mono mt-2">
+                            <span>HDR: <span className={caps.hdrSupported ? 'text-[#9CC0B4]' : 'text-[#F6F2EC]/40'}>{caps.hdrSupported ? '✓ Supported' : '✗ Not Supported'}</span></span>
+                            <span>AEB: <span className={caps.aebSupported ? 'text-[#9CC0B4]' : 'text-[#F6F2EC]/40'}>{caps.aebSupported ? '✓ Supported' : '✗ Not Supported'}</span></span>
+                            <span>AEB Frames: <span className="text-[#D6A77A]">{caps.supportedAebFrameCounts.length > 0 ? caps.supportedAebFrameCounts.join(' / ') : 'None'}</span></span>
+                            <span>RAW: <span className={caps.rawSupported ? 'text-[#9CC0B4]' : 'text-[#F6F2EC]/40'}>{caps.rawSupported ? '✓ Supported' : '✗ Not Supported'}</span></span>
+                            <span>JPEG: <span className={caps.jpegSupported ? 'text-[#9CC0B4]' : 'text-[#F6F2EC]/40'}>{caps.jpegSupported ? '✓ Supported' : '✗ Not Supported'}</span></span>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-1 text-[10px] text-amber-400/80 font-mono mt-2">
+                            <span>Status: INSTA360_SDK_NOT_CONFIGURED</span>
+                            <span>• Native integration ready</span>
+                            <span>• Supported AEB modes will be detected from the connected camera.</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="shrink-0 pt-1">
+                      {isConnected ? (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await insta.disconnect();
+                            setActiveProvider(cameraManager.getActiveProvider());
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-red-500/15 border border-red-500/30 text-xs font-semibold text-red-400 hover:bg-red-500/25 cursor-pointer transition-colors"
+                        >
+                          Disconnect
+                        </button>
+                      ) : (
+                        <span className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs font-medium text-[#F6F2EC]/40 cursor-not-allowed">
+                          Unavailable
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* 3. GoPro Camera */}
-              <div className="p-4 rounded-xl bg-black/20 border border-white/5 flex items-start justify-between gap-4 opacity-75">
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-[#F6F2EC]/50 shrink-0">
-                    <Video className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-[#F6F2EC]">GoPro 360</span>
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300">
-                        API Integration Required
-                      </span>
-                    </div>
-                    <p className="text-xs text-[#F6F2EC]/60 mt-1 leading-relaxed">
-                      Wi-Fi/Bluetooth driver for GoPro MAX and HERO cameras. Architecture ready for 3-frame AEB; Open GoPro API is not configured.
-                    </p>
-                    <div className="flex items-center gap-2 text-[10px] text-amber-400/80 font-mono mt-2">
-                      <span>Status: GOPRO_SDK_NOT_CONFIGURED</span>
-                      <span>• 3-Frame AEB Architecture Ready</span>
-                    </div>
-                  </div>
-                </div>
+              {(() => {
+                const gopro = cameraManager.getProvider('gopro');
+                const isConnected = gopro?.getConnectionState() === 'CONNECTED';
+                const caps = isConnected ? gopro.getHDRCapabilities() : null;
 
-                <div className="shrink-0 pt-1">
-                  <span className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs font-medium text-[#F6F2EC]/40 cursor-not-allowed">
-                    Unavailable
-                  </span>
-                </div>
-              </div>
+                return (
+                  <div className="p-4 rounded-xl bg-black/20 border border-white/5 flex items-start justify-between gap-4 opacity-80">
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-[#F6F2EC]/50 shrink-0">
+                        <Video className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-[#F6F2EC]">GoPro 360</span>
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 font-mono">
+                            {isConnected ? 'CAMERA_CONNECTED' : 'SDK_NOT_CONFIGURED'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-[#F6F2EC]/60 mt-1 leading-relaxed">
+                          {isConnected
+                            ? `Connected to ${gopro?.getInfo().model}. Dynamic hardware capabilities active.`
+                            : 'Native/API integration ready for GoPro MAX and HERO cameras. Capabilities will be detected when a supported camera is connected.'}
+                        </p>
+
+                        {isConnected && caps ? (
+                          <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-[10px] font-mono mt-2">
+                            <span>HDR: <span className={caps.hdrSupported ? 'text-[#9CC0B4]' : 'text-[#F6F2EC]/40'}>{caps.hdrSupported ? '✓ Supported' : '✗ Not Supported'}</span></span>
+                            <span>AEB: <span className={caps.aebSupported ? 'text-[#9CC0B4]' : 'text-[#F6F2EC]/40'}>{caps.aebSupported ? '✓ Supported' : '✗ Not Supported'}</span></span>
+                            <span>AEB Frames: <span className="text-[#D6A77A]">{caps.supportedAebFrameCounts.length > 0 ? caps.supportedAebFrameCounts.join(' / ') : 'None'}</span></span>
+                            <span>RAW: <span className={caps.rawSupported ? 'text-[#9CC0B4]' : 'text-[#F6F2EC]/40'}>{caps.rawSupported ? '✓ Supported' : '✗ Not Supported'}</span></span>
+                            <span>JPEG: <span className={caps.jpegSupported ? 'text-[#9CC0B4]' : 'text-[#F6F2EC]/40'}>{caps.jpegSupported ? '✓ Supported' : '✗ Not Supported'}</span></span>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-1 text-[10px] text-amber-400/80 font-mono mt-2">
+                            <span>Status: GOPRO_SDK_NOT_CONFIGURED</span>
+                            <span>• Native/API integration ready</span>
+                            <span>• Capabilities will be detected when a supported camera is connected.</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="shrink-0 pt-1">
+                      {isConnected ? (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await gopro.disconnect();
+                            setActiveProvider(cameraManager.getActiveProvider());
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-red-500/15 border border-red-500/30 text-xs font-semibold text-red-400 hover:bg-red-500/25 cursor-pointer transition-colors"
+                        >
+                          Disconnect
+                        </button>
+                      ) : (
+                        <span className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs font-medium text-[#F6F2EC]/40 cursor-not-allowed">
+                          Unavailable
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* HDR / AEB Capability Architecture Status */}
-            <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/10">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-[#F6F2EC]">360° HDR / AEB Bracketing</span>
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-[#F6F2EC]/60">
-                  {activeProvider && activeProvider.getConnectionState() === 'CONNECTED'
-                    ? 'Single Exposure Active'
-                    : 'Hardware Disconnected'}
-                </span>
-              </div>
-              <p className="text-[11px] text-[#F6F2EC]/50 mt-1 leading-relaxed">
-                {activeProvider && activeProvider.getConnectionState() === 'CONNECTED'
-                  ? 'Active device uses single-frame capture. Professional 3/5/7-frame AEB bracketing requires a connected 360° hardware camera.'
-                  : 'AEB modes (3, 5, 7, 9 frames) and RAW/DNG formats will be enabled when a supported external 360° camera is connected.'}
-              </p>
-            </div>
+            {(() => {
+              const isConnected = activeProvider && activeProvider.getConnectionState() === 'CONNECTED';
+              const isExternal = activeProvider && activeProvider.type !== 'PHONE';
+              const caps = isConnected ? activeProvider.getHDRCapabilities() : null;
+
+              return (
+                <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/10 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-[#F6F2EC]">
+                      360° HDR / AEB Architecture & Capabilities
+                    </span>
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-[#F6F2EC]/70 font-mono">
+                      {isConnected ? (caps ? 'CAPABILITIES_READY' : 'CAPABILITIES_LOADING') : 'CAMERA_DISCONNECTED'}
+                    </span>
+                  </div>
+
+                  <p className="text-[11px] text-[#F6F2EC]/60 leading-relaxed">
+                    External camera HDR/AEB support is ready for capability-based detection.
+                    Available modes, frame counts and formats will be determined by the connected camera.
+                  </p>
+
+                  {isConnected && isExternal && caps ? (
+                    <div className="p-2.5 rounded-lg bg-black/40 border border-white/10 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] font-mono">
+                      <div>
+                        <span className="text-[#F6F2EC]/40 block">HDR Mode</span>
+                        <span className={caps.hdrSupported ? 'text-[#9CC0B4] font-bold' : 'text-[#F6F2EC]/50'}>
+                          {caps.hdrSupported ? '✓ Supported' : '✗ Unsupported'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[#F6F2EC]/40 block">AEB Mode</span>
+                        <span className={caps.aebSupported ? 'text-[#9CC0B4] font-bold' : 'text-[#F6F2EC]/50'}>
+                          {caps.aebSupported ? '✓ Supported' : '✗ Unsupported'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[#F6F2EC]/40 block">AEB Frames</span>
+                        <span className="text-[#D6A77A] font-bold">
+                          {caps.supportedAebFrameCounts.length > 0 ? caps.supportedAebFrameCounts.join(' / ') : 'None'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[#F6F2EC]/40 block">RAW / DNG</span>
+                        <span className={caps.rawSupported ? 'text-[#9CC0B4] font-bold' : 'text-[#F6F2EC]/50'}>
+                          {caps.rawSupported ? '✓ Supported' : '✗ Unsupported'}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-[10px] text-[#F6F2EC]/40 font-mono pt-1">
+                      RenderWalk Architecture Readiness: 3, 5, 7, 9 AEB frames & RAW/DNG formats. Capabilities will be dynamically queried upon camera connection.
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             <div className="pt-2 flex justify-end">
               <button
