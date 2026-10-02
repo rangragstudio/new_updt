@@ -1,0 +1,680 @@
+// RenderWalk Production PostgreSQL Prisma Schema
+// Portable schema for PostgreSQL, Neon, Railway, Docker
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -------------------------------------------------------------
+// 1. TENANCY & USERS
+// -------------------------------------------------------------
+
+enum PlatformRole {
+  SUPER_ADMIN
+  PLATFORM_ADMIN
+  NONE
+}
+
+enum PartnerRole {
+  OWNER
+  MANAGER
+}
+
+enum OrgRole {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+enum EntityStatus {
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+model User {
+  id             String         @id @default(uuid())
+  email          String         @unique
+  name           String
+  passwordHash   String?
+  avatarUrl      String?
+  platformRole   PlatformRole   @default(NONE)
+  locale         String         @default("en")
+  units          String         @default("metric") // "metric" | "imperial"
+  twoFactorEnabled Boolean      @default(false)
+  twoFactorSecret  String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  deletedAt      DateTime?
+
+  accounts       Account[]
+  sessions       Session[]
+  partnerMembers PartnerMember[]
+  orgMembers     OrganizationMember[]
+  auditLogs      AuditLog[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String   @id @default(uuid())
+  userId            String
+  provider          String
+  providerAccountId String
+  refreshToken      String?  @db.Text
+  accessToken       String?  @db.Text
+  expiresAt         Int?
+  tokenType         String?
+  scope             String?
+  idToken           String?  @db.Text
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model Partner {
+  id           String         @id @default(uuid())
+  name         String
+  slug         String         @unique
+  status       EntityStatus   @default(ACTIVE)
+  branding     Json?          // { appName, logoUrl, brandColor, customCss }
+  portalDomain String?        @unique
+  emailSender  String?
+  limits       Json?          // { maxOrgs, totalStorageGb, processingHours }
+  settings     Json?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  deletedAt    DateTime?
+
+  members      PartnerMember[]
+  organizations Organization[]
+
+  @@map("partners")
+}
+
+model PartnerMember {
+  id         String      @id @default(uuid())
+  partnerId  String
+  userId     String
+  role       PartnerRole @default(MANAGER)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  partner    Partner     @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([partnerId, userId])
+  @@index([partnerId])
+  @@index([userId])
+  @@map("partner_members")
+}
+
+model Organization {
+  id           String               @id @default(uuid())
+  partnerId    String
+  name         String
+  logoUrl      String?
+  brandColour  String               @default("#D6A77A")
+  whatsapp     String?
+  contact      Json?                // { phone, email, address, website }
+  industry     String?
+  units        String               @default("metric")
+  currency     String               @default("INR") // Default INR for Indian market fit
+  timeZone     String               @default("Asia/Kolkata")
+  settings     Json?
+  status       EntityStatus         @default(ACTIVE)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  deletedAt    DateTime?
+
+  partner      Partner              @relation(fields: [partnerId], references: [id])
+  members      OrganizationMember[]
+  invitations  Invitation[]
+  tours        Tour[]
+  brandKits    BrandKit[]
+  leads        Lead[]
+  products     Product[]
+  customDomains CustomDomain[]
+  subscriptions Subscription[]
+  usage        Usage[]
+  notifications Notification[]
+  jobs         ProcessingJob[]
+
+  @@index([partnerId])
+  @@map("organizations")
+}
+
+model OrganizationMember {
+  id             String       @id @default(uuid())
+  organizationId String
+  userId         String
+  role           OrgRole      @default(EDITOR)
+  status         EntityStatus @default(ACTIVE)
+  invitedBy      String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([organizationId])
+  @@index([userId])
+  @@map("organization_members")
+}
+
+model Invitation {
+  id             String       @id @default(uuid())
+  organizationId String
+  email          String
+  role           OrgRole      @default(EDITOR)
+  tokenHash      String       @unique
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  createdAt      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([email])
+  @@map("invitations")
+}
+
+// -------------------------------------------------------------
+// 2. TOURS & SPATIAL ENGINE
+// -------------------------------------------------------------
+
+enum TourStatus {
+  DRAFT
+  PROCESSING
+  PUBLISHED
+  DEACTIVATED
+  ARCHIVED
+}
+
+enum AccessType {
+  PUBLIC
+  PASSWORD
+  LEAD_GATE
+}
+
+model Tour {
+  id                 String          @id @default(uuid())
+  organizationId     String
+  folderId           String?
+  name               String
+  slug               String          @unique
+  status             TourStatus      @default(DRAFT)
+  accessType         AccessType      @default(PUBLIC)
+  passwordHash       String?
+  startScanId        String?
+  brandKitId         String?
+  propertyMeta       Json?           // { type, bedrooms, bathrooms, area, price, address }
+  settings           Json?           // { viewerUi, autoRotate, navigation, compass, sound }
+  draftVersion       Int             @default(1)
+  publishedVersionId String?
+  publishedAt        DateTime?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  deletedAt          DateTime?
+
+  organization       Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  brandKit           BrandKit?       @relation(fields: [brandKitId], references: [id])
+  scans              Scan[]
+  rooms              Room[]
+  levels             Level[]
+  floorPlans         FloorPlan[]
+  captureSessions    CaptureSession[]
+  versions           TourVersion[]
+  leads              Lead[]
+  jobs               ProcessingJob[]
+
+  @@index([organizationId])
+  @@index([slug])
+  @@index([status])
+  @@map("tours")
+}
+
+model TourVersion {
+  id          String   @id @default(uuid())
+  tourId      String
+  versionNum  Int
+  snapshot    Json     // Complete immutable snapshot of scans, links, and content
+  publishedBy String?
+  publishedAt DateTime @default(now())
+
+  tour        Tour     @relation(fields: [tourId], references: [id], onDelete: Cascade)
+
+  @@index([tourId])
+  @@map("tour_versions")
+}
+
+enum CaptureSource {
+  UPLOAD
+  PHONE
+  CAMERA_360
+  RENDER
+  SKETCHUP
+}
+
+enum SessionState {
+  CAPTURING
+  FINISHING
+  PROCESSING
+  READY
+  NEEDS_ATTENTION
+  FAILED
+}
+
+model CaptureSession {
+  id        String        @id @default(uuid())
+  tourId    String
+  source    CaptureSource @default(UPLOAD)
+  state     SessionState  @default(CAPTURING)
+  startedBy String?
+  finishedAt DateTime?
+  stats     Json?         // { scansCount, placedCount, warningsCount }
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  tour      Tour          @relation(fields: [tourId], references: [id], onDelete: Cascade)
+  scans     Scan[]
+
+  @@index([tourId])
+  @@map("capture_sessions")
+}
+
+model Level {
+  id        String    @id @default(uuid())
+  tourId    String
+  name      String    // e.g. "Ground Floor", "Level 1"
+  order     Int       @default(0)
+  height    Float     @default(0.0) // meters
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  tour      Tour      @relation(fields: [tourId], references: [id], onDelete: Cascade)
+  rooms     Room[]
+  scans     Scan[]
+
+  @@index([tourId])
+  @@map("levels")
+}
+
+model Room {
+  id          String    @id @default(uuid())
+  tourId      String
+  levelId     String?
+  name        String    // e.g. "Living Room", "Master Suite"
+  labelSource String    @default("user") // "ai" | "user"
+  dimensions  Json?     // { width, length, height, area }
+  hidden      Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tour        Tour      @relation(fields: [tourId], references: [id], onDelete: Cascade)
+  level       Level?    @relation(fields: [levelId], references: [id])
+  scans       Scan[]
+
+  @@index([tourId])
+  @@map("rooms")
+}
+
+model Scan {
+  id                   String          @id @default(uuid())
+  organizationId       String?
+  tourId               String
+  sessionId            String?
+  roomId               String?
+  levelId              String?
+  name                 String
+  order                Int             @default(0)
+  isStartScan          Boolean         @default(false)
+  hiddenInWalkthrough  Boolean         @default(false)
+  type                 String          @default("image") // "image" | "video" | "stream"
+  
+  // Storage Keys (Cloudflare R2 / Storage Service)
+  originalKey          String?
+  previewKey           String?
+  optimizedKey         String?
+  mobileKey            String?
+  thumbKey             String?
+  tilesPath            String?
+  tileManifest         Json?           // Multiresolution tile manifest
+  
+  width                Int?
+  height               Int?
+  fileHash             String?
+  
+  placement            Json?           // { position: [x,y,z], rotation: {yaw,pitch,roll}, confidence: 0.95 }
+  startView            Json?           // { yaw: 0, pitch: 0, hfov: 90 }
+  warnings             Json?           // [{ code: "too_far", message: "..." }]
+  status               String          @default("ready") // "uploading" | "ready" | "failed"
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  tour                 Tour            @relation(fields: [tourId], references: [id], onDelete: Cascade)
+  session              CaptureSession? @relation(fields: [sessionId], references: [id])
+  room                 Room?           @relation(fields: [roomId], references: [id])
+  level                Level?          @relation(fields: [levelId], references: [id])
+  
+  outgoingLinks        Link[]          @relation("SourceScan")
+  incomingLinks        Link[]          @relation("TargetScan")
+  contentItems         ContentItem[]
+
+  @@index([organizationId])
+  @@index([tourId])
+  @@index([roomId])
+  @@map("scans")
+}
+
+model Link {
+  id           String   @id @default(uuid())
+  scanId       String
+  targetScanId String
+  yaw          Float    // Horizontal angle on sphere (-180 to 180)
+  pitch        Float    // Vertical angle (-90 to 90)
+  point3d      Json?    // [x, y, z] when 3D dollhouse coordinates available
+  style        Json?    // { type: "floor_ring" | "arrow" | "pill", color: "#D6A77A" }
+  arrivalView  Json?    // { yaw, pitch, hfov }
+  isAuto       Boolean  @default(false)
+  lookAt       Boolean  @default(true)
+  returnLinkId String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  scan         Scan     @relation("SourceScan", fields: [scanId], references: [id], onDelete: Cascade)
+  targetScan   Scan     @relation("TargetScan", fields: [targetScanId], references: [id], onDelete: Cascade)
+
+  @@index([scanId])
+  @@index([targetScanId])
+  @@map("links")
+}
+
+model ContentItem {
+  id           String   @id @default(uuid())
+  scanId       String
+  type         String   // "product" | "info" | "contact" | "link" | "gallery" | "video"
+  style        Json?    // { icon: "info" | "shopping-bag", color: "#D6A77A", pulse: true }
+  yaw          Float
+  pitch        Float
+  point3d      Json?
+  content      Json     // For products: { name, price, currency: "INR", whatsappCta: true, ... }
+  groupId      String?
+  hidden       Boolean  @default(false)
+  order        Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  scan         Scan     @relation(fields: [scanId], references: [id], onDelete: Cascade)
+
+  @@index([scanId])
+  @@map("content_items")
+}
+
+model Product {
+  id             String       @id @default(uuid())
+  organizationId String
+  name           String
+  brand          String?
+  material       String?
+  dimensions     String?
+  price          Float
+  currency       String       @default("INR")
+  productUrl     String?
+  imageUrl       String?
+  sku            String?
+  category       String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("products")
+}
+
+model FloorPlan {
+  id        String   @id @default(uuid())
+  tourId    String
+  levelId   String?
+  source    String   @default("uploaded") // "uploaded" | "auto_spatial"
+  svgUrl    String?
+  pdfUrl    String?
+  imageUrl  String?
+  data      Json?    // Room polygons and wall vectors
+  settings  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tour      Tour     @relation(fields: [tourId], references: [id], onDelete: Cascade)
+
+  @@index([tourId])
+  @@map("floor_plans")
+}
+
+// -------------------------------------------------------------
+// 3. BRANDING, LEADS & COMMERCE
+// -------------------------------------------------------------
+
+model BrandKit {
+  id             String       @id @default(uuid())
+  organizationId String
+  name           String
+  logoUrl        String?
+  logoDarkUrl    String?
+  brandColour    String       @default("#D6A77A")
+  secondaryColour String?
+  fontFamily     String       @default("Instrument Serif")
+  themeName      String       @default("glass_dark") // "glass_dark" | "glass_light" | "minimal"
+  removeWatermark Boolean     @default(false)
+  isDefault      Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tours          Tour[]
+
+  @@index([organizationId])
+  @@map("brand_kits")
+}
+
+model CustomDomain {
+  id             String       @id @default(uuid())
+  organizationId String
+  hostname       String       @unique
+  dnsStatus      String       @default("pending") // "pending" | "verified" | "error"
+  sslStatus      String       @default("pending")
+  verifiedAt     DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("custom_domains")
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  CLOSED
+}
+
+model Lead {
+  id             String       @id @default(uuid())
+  organizationId String
+  tourId         String
+  scanId         String?
+  productId      String?
+  source         String       @default("tour_inquiry") // "whatsapp" | "lead_gate" | "product_card"
+  name           String
+  phone          String
+  email          String?
+  message        String?
+  status         LeadStatus   @default(NEW)
+  notes          String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tour           Tour         @relation(fields: [tourId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([tourId])
+  @@index([status])
+  @@map("leads")
+}
+
+// -------------------------------------------------------------
+// 4. BACKGROUND JOBS & AUDITING
+// -------------------------------------------------------------
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  DONE
+  FAILED
+  NEEDS_ATTENTION
+}
+
+model ProcessingJob {
+  id             String       @id @default(uuid())
+  organizationId String
+  tourId         String?
+  type           String       // "MAKE_PREVIEW" | "GENERATE_TILES" | "QUICK_ALIGN" | "FULL_PROCESSING"
+  targetId       String?
+  status         JobStatus    @default(QUEUED)
+  progress       Int          @default(0) // 0 to 100
+  step           String?
+  priority       Int          @default(5)
+  attempts       Int          @default(0)
+  maxAttempts    Int          @default(3)
+  errorMessage   String?
+  workerId       String?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tour           Tour?        @relation(fields: [tourId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([type])
+  @@map("processing_jobs")
+}
+
+model AuditLog {
+  id             String   @id @default(uuid())
+  actorId        String
+  actorType      String   @default("user") // "user" | "api_key" | "system"
+  action         String   // "CREATE_TOUR", "DELETE_SCAN", "UPDATE_BRANDING"
+  targetType     String   // "Tour", "Organization", "User"
+  targetId       String
+  beforeState    Json?
+  afterState     Json?
+  ipAddress      String?
+  createdAt      DateTime @default(now())
+
+  actor          User     @relation(fields: [actorId], references: [id])
+
+  @@index([actorId])
+  @@index([targetType, targetId])
+  @@map("audit_logs")
+}
+
+model Plan {
+  id             String         @id @default(uuid())
+  name           String         // "Starter", "Studio", "Business", "Enterprise"
+  trialDays      Int            @default(14)
+  toursLimit     Int            @default(5)
+  scansPerTour   Int            @default(40)
+  storageGb      Float          @default(20.0)
+  seatsLimit     Int            @default(1)
+  priceMonthlyInr Float         @default(999.0)
+  priceYearlyInr  Float         @default(9990.0)
+  features       Json           // { allow3D: false, allowBrandKits: true, removeWatermark: false }
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  subscriptions  Subscription[]
+
+  @@map("plans")
+}
+
+model Subscription {
+  id             String       @id @default(uuid())
+  organizationId String
+  planId         String
+  status         String       @default("active") // "trial" | "active" | "past_due" | "canceled"
+  startedAt      DateTime     @default(now())
+  expiresAt      DateTime
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan           Plan         @relation(fields: [planId], references: [id])
+
+  @@index([organizationId])
+  @@map("subscriptions")
+}
+
+model Usage {
+  id             String       @id @default(uuid())
+  organizationId String
+  storageBytes   BigInt       @default(0)
+  toursCount     Int          @default(0)
+  scansCount     Int          @default(0)
+  aiCreditsUsed  Int          @default(0)
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId])
+  @@map("usage")
+}
+
+model Notification {
+  id             String    @id @default(uuid())
+  organizationId String
+  userId         String?
+  type           String    // "TOUR_PROCESSING_COMPLETED" | "TOUR_PROCESSING_FAILED" | "TOUR_PUBLISHED" | "STORAGE_QUOTA_WARNING" | "PLAN_LIMIT_REACHED"
+  title          String
+  message        String
+  metadata       Json?
+  read           Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("notifications")
+}
+

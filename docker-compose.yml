@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: renderwalk-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: renderwalk
+      POSTGRES_PASSWORD: renderwalk_dev_secret
+      POSTGRES_DB: renderwalk_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U renderwalk -d renderwalk_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: renderwalk-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: "postgresql://renderwalk:renderwalk_dev_secret@postgres:5432/renderwalk_db?schema=public"
+      AUTH_SECRET: "renderwalk_dev_auth_secret_minimum_32_characters"
+      STORAGE_DRIVER: "local" # or "r2"
+      R2_ACCOUNT_ID: "${R2_ACCOUNT_ID:-}"
+      R2_ACCESS_KEY_ID: "${R2_ACCESS_KEY_ID:-}"
+      R2_SECRET_ACCESS_KEY: "${R2_SECRET_ACCESS_KEY:-}"
+      R2_BUCKET: "${R2_BUCKET:-renderwalk-tours}"
+      R2_PUBLIC_URL: "${R2_PUBLIC_URL:-http://localhost:3000/storage}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  image-worker:
+    build:
+      context: .
+      dockerfile: services/image-worker/Dockerfile
+    container_name: renderwalk-image-worker
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: "postgresql://renderwalk:renderwalk_dev_secret@postgres:5432/renderwalk_db?schema=public"
+      STORAGE_DRIVER: "local"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

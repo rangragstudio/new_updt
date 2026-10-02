@@ -1,0 +1,43 @@
+{
+  "projection": "equirectangular",
+  "width": 4096,
+  "height": 2048,
+  "tileSize": 512,
+  "previewUrl": "http://localhost:3000/storage/organizations/bench-org/tours/bench-tour/scans/scan-4096/previews/preview.jpg",
+  "thumbnailUrl": "http://localhost:3000/storage/organizations/bench-org/tours/bench-tour/scans/scan-4096/previews/thumb.webp",
+  "levels": [
+    {
+      "level": 0,
+      "width": 512,
+      "height": 256,
+      "tilesX": 1,
+      "tilesY": 1,
+      "tileSize": 512
+    },
+    {
+      "level": 1,
+      "width": 1024,
+      "height": 512,
+      "tilesX": 2,
+      "tilesY": 1,
+      "tileSize": 512
+    },
+    {
+      "level": 2,
+      "width": 2048,
+      "height": 1024,
+      "tilesX": 4,
+      "tilesY": 2,
+      "tileSize": 512
+    },
+    {
+      "level": 3,
+      "width": 4096,
+      "height": 2048,
+      "tilesX": 8,
+      "tilesY": 4,
+      "tileSize": 512
+    }
+  ],
+  "createdAt": "2026-10-01T13:43:24.659Z"
+}

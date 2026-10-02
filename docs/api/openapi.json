@@ -1,0 +1,57 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "RenderWalk Public & Internal API",
+    "version": "1.0.0",
+    "description": "API-first platform for 360° virtual tours, architectural render pipelines, spatial reconstruction, and lead capture."
+  },
+  "servers": [
+    {
+      "url": "https://api.renderwalk.com/api/v1",
+      "description": "Production API"
+    },
+    {
+      "url": "http://localhost:3000/api/v1",
+      "description": "Local Development"
+    }
+  ],
+  "paths": {
+    "/tours": {
+      "get": {
+        "summary": "List tours for the authenticated organization",
+        "parameters": [
+          { "name": "status", "in": "query", "schema": { "type": "string" } },
+          { "name": "search", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Tours retrieved successfully" }
+        }
+      },
+      "post": {
+        "summary": "Create a new tour",
+        "responses": {
+          "201": { "description": "Tour created" }
+        }
+      }
+    },
+    "/tours/{id}": {
+      "get": { "summary": "Get full tour detail with scans, links, and content" },
+      "patch": { "summary": "Update tour metadata and settings" },
+      "delete": { "summary": "Delete tour and associated media" }
+    },
+    "/tours/{id}/uploads": {
+      "post": {
+        "summary": "Initiate resumable upload session for panoramas or render packages"
+      }
+    },
+    "/tours/{id}/publish": {
+      "post": {
+        "summary": "Publish tour draft with custom slug, QR, and embed output"
+      }
+    },
+    "/leads": {
+      "get": { "summary": "Get organization leads inbox" },
+      "post": { "summary": "Submit lead inquiry from 360 viewer or product card" }
+    }
+  }
+}

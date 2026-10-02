@@ -1,0 +1,6 @@
+{
+  "name": "RenderWalk",
+  "description": "Professional 360° Virtual Tour & Architectural Walkthrough SaaS Platform",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
