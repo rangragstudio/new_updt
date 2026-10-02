@@ -12,6 +12,8 @@ import {
 import { useRepository } from '../hooks/useRepository';
 import { BrassButton, OutlinedBrassButton, GlassPanel } from '../components/UIPrimitives';
 import { SpacingWarning } from '../types/models';
+import { cameraManager, CameraProvider, hdrCapturePipeline, HDRCaptureJob } from '../services/camera';
+import { Smartphone, Radio, Disc, Video, X, CheckCircle2, RefreshCw } from 'lucide-react';
 
 interface LiveCaptureScreenProps {
   onNavigateBack: () => void;
@@ -30,7 +32,19 @@ export const LiveCaptureScreen: React.FC<LiveCaptureScreenProps> = ({
   );
 
   const [showFinishChecklist, setShowFinishChecklist] = useState(false);
+  const [showConnectCameraModal, setShowConnectCameraModal] = useState(false);
+  const [activeProvider, setActiveProvider] = useState<CameraProvider | null>(() => cameraManager.getActiveProvider());
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [pipelineJobs, setPipelineJobs] = useState<HDRCaptureJob[]>(() => hdrCapturePipeline.getAllJobs());
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Subscribe to asynchronous HDR pipeline updates
+  useEffect(() => {
+    const unsub = hdrCapturePipeline.subscribe(() => {
+      setPipelineJobs([...hdrCapturePipeline.getAllJobs()]);
+    });
+    return unsub;
+  }, []);
 
   const spacingWarnings: SpacingWarning[] = useMemo(() => {
     return repository.evaluateScanSpacing(tourScans);
@@ -127,13 +141,27 @@ export const LiveCaptureScreen: React.FC<LiveCaptureScreenProps> = ({
     const nextX = (last?.posX || 0) + offset;
     const nextY = (last?.posY || 0) + offset * 0.4;
 
-    repository.addScanToTour(
+    const newScan = repository.addScanToTour(
       activeTour.id,
       isDoorway ? 'Doorway Transition' : `Room Spot ${num}`,
       isDoorway ? `Connector ${num}` : `Spot ${num}`,
       nextX,
       nextY
     );
+
+    // Fast non-blocking handoff (Requirement 1 & 10):
+    // Enqueue single HDR / standard panorama for background processing
+    // User can immediately continue walking to next spot without waiting for HDR/tiling!
+    if (typeof Blob !== 'undefined') {
+      const mockPanoramaBlob = new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xe0])], {
+        type: 'image/jpeg'
+      });
+      hdrCapturePipeline
+        .enqueueSingleHDRPanorama(activeTour.id, newScan.id, newScan.name, mockPanoramaBlob)
+        .catch((err) => {
+          console.warn('[LiveCapture] Non-blocking pipeline enqueue notice:', err);
+        });
+    }
   };
 
   return (
@@ -158,11 +186,18 @@ export const LiveCaptureScreen: React.FC<LiveCaptureScreenProps> = ({
           </div>
         </div>
 
-        <BrassButton
-          text="Finish Session"
-          onClick={() => setShowFinishChecklist(true)}
-          icon={Check}
-        />
+        <div className="flex items-center gap-2">
+          <OutlinedBrassButton
+            text={activeProvider?.getConnectionState() === 'CONNECTED' ? `${activeProvider.name} Connected` : 'Connect Camera'}
+            onClick={() => setShowConnectCameraModal(true)}
+            icon={Camera}
+          />
+          <BrassButton
+            text="Finish Session"
+            onClick={() => setShowFinishChecklist(true)}
+            icon={Check}
+          />
+        </div>
       </header>
 
       {/* Main Drafting Alignment Canvas */}
@@ -226,6 +261,19 @@ export const LiveCaptureScreen: React.FC<LiveCaptureScreenProps> = ({
           </div>
         </div>
 
+        {/* Asynchronous Non-blocking HDR/Upload Status */}
+        {pipelineJobs.some((j) => j.state !== 'COMPLETE' && j.state !== 'FAILED') && (
+          <div className="mb-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 flex items-center justify-between text-[11px] text-[#F6F2EC]/70">
+            <div className="flex items-center gap-2">
+              <RefreshCw className="w-3.5 h-3.5 text-[#D6A77A] animate-spin shrink-0" />
+              <span>
+                Background Pipeline: {pipelineJobs.filter((j) => j.state !== 'COMPLETE' && j.state !== 'FAILED').length} job in queue • Capture is ready
+              </span>
+            </div>
+            <span className="text-[10px] font-mono text-[#D6A77A]">Non-blocking</span>
+          </div>
+        )}
+
         {/* Actions */}
         <div className="pt-2">
           <BrassButton
@@ -285,6 +333,177 @@ export const LiveCaptureScreen: React.FC<LiveCaptureScreenProps> = ({
                   if (activeTour) onOpenTour(activeTour.id);
                 }}
               />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CONNECT CAMERA MODAL */}
+      {showConnectCameraModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl bg-[#141210] border border-white/15 p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <div>
+                <h3 className="text-base font-bold font-serif-heading text-[#F6F2EC]">
+                  Connect Camera
+                </h3>
+                <p className="text-xs text-[#F6F2EC]/60 mt-0.5">
+                  Select a camera provider for spatial 360° capture:
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowConnectCameraModal(false)}
+                className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/15 text-[#F6F2EC]/70 hover:text-[#F6F2EC] flex items-center justify-center cursor-pointer transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Providers List */}
+            <div className="space-y-3">
+              {/* 1. Phone Camera */}
+              <div className="p-4 rounded-xl bg-black/40 border border-white/10 flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-[#D6A77A]/15 border border-[#D6A77A]/30 flex items-center justify-center text-[#D6A77A] shrink-0">
+                    <Smartphone className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-[#F6F2EC]">Phone Camera</span>
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#9CC0B4]/15 border border-[#9CC0B4]/30 text-[#9CC0B4]">
+                        Device Supported
+                      </span>
+                    </div>
+                    <p className="text-xs text-[#F6F2EC]/60 mt-1 leading-relaxed">
+                      Uses your phone's built-in camera and orientation sensors for guided room captures.
+                    </p>
+                    <div className="flex items-center gap-2 text-[10px] text-[#F6F2EC]/50 font-mono mt-2">
+                      <span>• Live Preview</span>
+                      <span>• Horizon Sensors</span>
+                      <span>• Standard Single JPEG</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="shrink-0 pt-1">
+                  {activeProvider?.id === 'phone-camera' && activeProvider.getConnectionState() === 'CONNECTED' ? (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await cameraManager.disconnectActive();
+                        setActiveProvider(null);
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-red-500/15 border border-red-500/30 text-xs font-semibold text-red-400 hover:bg-red-500/25 cursor-pointer transition-colors"
+                    >
+                      Disconnect
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={isConnecting}
+                      onClick={async () => {
+                        setIsConnecting(true);
+                        const ok = await cameraManager.setActiveProvider('phone-camera');
+                        setIsConnecting(false);
+                        if (ok) {
+                          setActiveProvider(cameraManager.getActiveProvider());
+                        }
+                      }}
+                      className="px-3.5 py-1.5 rounded-lg bg-[#D6A77A] hover:bg-[#c49265] text-xs font-bold text-[#0E0C0A] cursor-pointer shadow-md transition-colors"
+                    >
+                      {isConnecting ? 'Connecting...' : 'Connect'}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* 2. Insta360 Camera */}
+              <div className="p-4 rounded-xl bg-black/20 border border-white/5 flex items-start justify-between gap-4 opacity-75">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-[#F6F2EC]/50 shrink-0">
+                    <Disc className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-[#F6F2EC]">Insta360 Camera</span>
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300">
+                        SDK Integration Required
+                      </span>
+                    </div>
+                    <p className="text-xs text-[#F6F2EC]/60 mt-1 leading-relaxed">
+                      Native driver for Insta360 X3, X4, ONE RS. Architecture ready for 3/5/7/9-frame AEB bracketing; official camera SDK is not configured.
+                    </p>
+                    <div className="flex items-center gap-2 text-[10px] text-amber-400/80 font-mono mt-2">
+                      <span>Status: INSTA360_SDK_NOT_CONFIGURED</span>
+                      <span>• 3/5/7/9 AEB Architecture Ready</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="shrink-0 pt-1">
+                  <span className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs font-medium text-[#F6F2EC]/40 cursor-not-allowed">
+                    Unavailable
+                  </span>
+                </div>
+              </div>
+
+              {/* 3. GoPro Camera */}
+              <div className="p-4 rounded-xl bg-black/20 border border-white/5 flex items-start justify-between gap-4 opacity-75">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-[#F6F2EC]/50 shrink-0">
+                    <Video className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-[#F6F2EC]">GoPro 360</span>
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300">
+                        API Integration Required
+                      </span>
+                    </div>
+                    <p className="text-xs text-[#F6F2EC]/60 mt-1 leading-relaxed">
+                      Wi-Fi/Bluetooth driver for GoPro MAX and HERO cameras. Architecture ready for 3-frame AEB; Open GoPro API is not configured.
+                    </p>
+                    <div className="flex items-center gap-2 text-[10px] text-amber-400/80 font-mono mt-2">
+                      <span>Status: GOPRO_SDK_NOT_CONFIGURED</span>
+                      <span>• 3-Frame AEB Architecture Ready</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="shrink-0 pt-1">
+                  <span className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs font-medium text-[#F6F2EC]/40 cursor-not-allowed">
+                    Unavailable
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* HDR / AEB Capability Architecture Status */}
+            <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/10">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-[#F6F2EC]">360° HDR / AEB Bracketing</span>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-[#F6F2EC]/60">
+                  {activeProvider && activeProvider.getConnectionState() === 'CONNECTED'
+                    ? 'Single Exposure Active'
+                    : 'Hardware Disconnected'}
+                </span>
+              </div>
+              <p className="text-[11px] text-[#F6F2EC]/50 mt-1 leading-relaxed">
+                {activeProvider && activeProvider.getConnectionState() === 'CONNECTED'
+                  ? 'Active device uses single-frame capture. Professional 3/5/7-frame AEB bracketing requires a connected 360° hardware camera.'
+                  : 'AEB modes (3, 5, 7, 9 frames) and RAW/DNG formats will be enabled when a supported external 360° camera is connected.'}
+              </p>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowConnectCameraModal(false)}
+                className="px-4 py-2 text-xs font-semibold text-[#F6F2EC]/70 hover:text-[#F6F2EC] rounded-lg border border-white/10 hover:bg-white/5 cursor-pointer"
+              >
+                Done
+              </button>
             </div>
           </div>
         </div>
