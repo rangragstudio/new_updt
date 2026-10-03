@@ -29,11 +29,14 @@ import {
   MAX_PANORAMA_HEIGHT
 } from './HDRMergeEngine';
 import { repository as repositoryInstance } from '../repository';
+import jpeg from 'jpeg-js';
 
 export type InputWorkflowType =
   | 'NORMAL_PANORAMA'
   | 'SINGLE_HDR_PANORAMA'
   | 'AEB_BRACKET_SET';
+
+export type StandardJobState = 'QUEUED' | 'RUNNING' | 'FAILED' | 'DONE';
 
 export type WorkerJobStatus =
   | 'QUEUED'
@@ -45,6 +48,14 @@ export type WorkerJobStatus =
   | 'TILING'
   | 'COMPLETE'
   | 'FAILED';
+
+export interface StageTimings {
+  readonly inputLoadingDurationMs: number;
+  readonly hdrMergeDurationMs: number;
+  readonly outputGenerationDurationMs: number;
+  readonly tileGenerationDurationMs: number;
+  readonly totalDurationMs: number;
+}
 
 export type ProcessingErrorCode =
   | 'MISSING_FRAMES'
@@ -89,6 +100,7 @@ export interface ProcessingManifest {
   readonly cleanedTemporaryKeys: readonly string[];
   readonly processedAt: number;
   readonly processingDurationMs: number;
+  readonly timings?: StageTimings;
   readonly mergeResult?: {
     readonly durationMs: number;
     readonly framesMerged: number;
@@ -106,6 +118,7 @@ export interface WorkerProcessingJob {
   readonly expectedFrameCount?: number;
   readonly exposureStep?: number;
   status: WorkerJobStatus;
+  standardStatus: StandardJobState;
   progressPercent: number;
   currentStep: string;
   frames: FrameInputPayload[];
@@ -113,6 +126,7 @@ export interface WorkerProcessingJob {
   previewUrl?: string;
   panoramaUrl?: string;
   tileManifestUrl?: string;
+  timings?: StageTimings;
   errorCode?: ProcessingErrorCode;
   errorMessage?: string;
   retryCount: number;
@@ -194,6 +208,7 @@ export class HDRWorkerPipeline {
       expectedFrameCount: params.expectedFrameCount,
       exposureStep: params.exposureStep,
       status: 'QUEUED',
+      standardStatus: 'QUEUED',
       progressPercent: 5,
       currentStep: 'Job registered in worker queue',
       frames: params.frames,
@@ -211,6 +226,7 @@ export class HDRWorkerPipeline {
       params.frames.length < params.expectedFrameCount
     ) {
       job.status = 'WAITING_FOR_FRAMES';
+      job.standardStatus = 'FAILED';
       job.errorCode = 'WAITING_FOR_FRAMES';
       job.progressPercent = 10;
       job.errorMessage = `Waiting for remaining bracket frames (received ${params.frames.length} of ${params.expectedFrameCount}).`;
@@ -280,6 +296,7 @@ export class HDRWorkerPipeline {
    */
   private async executeJob(job: WorkerProcessingJob): Promise<void> {
     const startTime = Date.now();
+    const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const temporaryKeys: string[] = [];
 
     try {
@@ -287,6 +304,7 @@ export class HDRWorkerPipeline {
       // STAGE 1: VALIDATING (15%)
       // ---------------------------------------------------------------------
       job.status = 'VALIDATING';
+      job.standardStatus = 'RUNNING';
       job.progressPercent = 15;
       job.currentStep = 'Validating input frames, formats, and dimensions';
       this.notify(job);
@@ -370,7 +388,9 @@ export class HDRWorkerPipeline {
       // ---------------------------------------------------------------------
       // STAGE 2: READY & STORE ORIGINAL FRAMES (20% - 35%)
       // ---------------------------------------------------------------------
+      const tInputStart = typeof performance !== 'undefined' ? performance.now() : Date.now();
       job.status = 'READY';
+      job.standardStatus = 'RUNNING';
       job.progressPercent = 20;
       job.currentStep = 'Storing untouched original capture frames in persistent storage';
       this.notify(job);
@@ -397,30 +417,56 @@ export class HDRWorkerPipeline {
       await this.storage.putObject(tempKey, new Uint8Array([0x01, 0x02, 0x03]), 'application/octet-stream');
       temporaryKeys.push(tempKey);
 
+      const tInputDone = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      const inputLoadingDurationMs = Math.round(tInputDone - tInputStart);
+
       // ---------------------------------------------------------------------
       // STAGE 3: HDR MERGING (40% - 70%)
       // ---------------------------------------------------------------------
       let finalPanoramaBytes: Uint8Array | Uint8ClampedArray;
       let mergeStats: { durationMs: number; framesMerged: number; avgLuminance: number } | undefined;
+      const tMergeStart = typeof performance !== 'undefined' ? performance.now() : Date.now();
 
       if (job.workflowType === 'AEB_BRACKET_SET') {
         job.status = 'HDR_MERGING';
+        job.standardStatus = 'RUNNING';
         job.progressPercent = 40;
         job.currentStep = `Executing exposure fusion across ${job.frames.length} bracketed frames`;
         this.notify(job);
 
         // Convert frames to ExposureFrameBuffer format for the merge engine
-        const buffers: ExposureFrameBuffer[] = job.frames.map((f) => ({
-          frameIndex: f.frameIndex,
-          evOffset: f.evOffset,
-          width: f.width,
-          height: f.height,
-          data: f.data,
-          mimeType: f.mimeType
-        }));
+        // Decode compressed JPEG if necessary to get raw RGBA pixel buffers
+        const buffers: ExposureFrameBuffer[] = job.frames.map((f) => {
+          let rgbaData: Uint8ClampedArray | Uint8Array;
+          if (f.data.length === f.width * f.height * 4) {
+            rgbaData = f.data;
+          } else {
+            const decoded = jpeg.decode(Buffer.from(f.data));
+            rgbaData = new Uint8ClampedArray(decoded.data);
+          }
+          return {
+            frameIndex: f.frameIndex,
+            evOffset: f.evOffset,
+            width: f.width,
+            height: f.height,
+            data: rgbaData,
+            mimeType: f.mimeType
+          };
+        });
 
         const mergeResult: HDRMergeResult = await this.mergeEngine.mergeBracketSet(buffers);
-        finalPanoramaBytes = mergeResult.data;
+
+        // Encode fused RGBA buffer to valid JPEG format for storage and panorama viewer
+        const encodedJpeg = jpeg.encode(
+          {
+            data: Buffer.from(mergeResult.data),
+            width: mergeResult.width,
+            height: mergeResult.height
+          },
+          90
+        );
+        finalPanoramaBytes = new Uint8Array(encodedJpeg.data);
+
         mergeStats = {
           durationMs: mergeResult.durationMs,
           framesMerged: mergeResult.frameCountMerged,
@@ -445,10 +491,15 @@ export class HDRWorkerPipeline {
         finalPanoramaBytes = job.frames[0].data;
       }
 
+      const tMergeDone = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      const hdrMergeDurationMs = mergeStats ? mergeStats.durationMs : Math.round(tMergeDone - tMergeStart);
+
       // ---------------------------------------------------------------------
       // STAGE 4: PANORAMA READY & STORAGE (75%)
       // ---------------------------------------------------------------------
+      const tOutputStart = typeof performance !== 'undefined' ? performance.now() : Date.now();
       job.status = 'PANORAMA_READY';
+      job.standardStatus = 'RUNNING';
       job.progressPercent = 75;
       job.currentStep = 'Storing tone-mapped final panorama derivative';
       this.notify(job);
@@ -461,10 +512,15 @@ export class HDRWorkerPipeline {
       const thumbnailKey = `tours/${job.tourId}/scans/${job.scanId}/derivatives/thumbnail.jpg`;
       await this.storage.putObject(thumbnailKey, baseFrame.data, 'image/jpeg');
 
+      const tOutputDone = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      const outputGenerationDurationMs = Math.round(tOutputDone - tOutputStart);
+
       // ---------------------------------------------------------------------
       // STAGE 5: TILING (90%)
       // ---------------------------------------------------------------------
+      const tTilingStart = typeof performance !== 'undefined' ? performance.now() : Date.now();
       job.status = 'TILING';
+      job.standardStatus = 'RUNNING';
       job.progressPercent = 90;
       job.currentStep = 'Generating multi-resolution pyramid tile manifest';
       this.notify(job);
@@ -484,6 +540,9 @@ export class HDRWorkerPipeline {
       await this.storage.putObject(tilesManifestKey, tileManifestData, 'application/json');
       job.tileManifestUrl = this.storage.getPublicUrl(tilesManifestKey);
 
+      const tTilingDone = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      const tileGenerationDurationMs = Math.round(tTilingDone - tTilingStart);
+
       // ---------------------------------------------------------------------
       // STAGE 6: STORAGE CLEANUP (95%)
       // ---------------------------------------------------------------------
@@ -497,10 +556,28 @@ export class HDRWorkerPipeline {
         if (deleted) cleanedKeys.push(tKey);
       }
 
+      // Verify physical existence of outputs before reporting DONE
+      const panoramaExists = await this.storage.exists(panoramaKey);
+      const tilesManifestExists = await this.storage.exists(tilesManifestKey);
+
+      if (!panoramaExists || !tilesManifestExists) {
+        this.failJob(job, 'WORKER_FAILURE', 'Output verification failed: panorama or tile manifest was not written.');
+        return;
+      }
+
       // ---------------------------------------------------------------------
       // STAGE 7: COMPLETE (100%) & VIEWER INTEGRATION
       // ---------------------------------------------------------------------
       const duration = Date.now() - startTime;
+      const stageTimings: StageTimings = {
+        inputLoadingDurationMs,
+        hdrMergeDurationMs: job.workflowType === 'AEB_BRACKET_SET' ? hdrMergeDurationMs : 0,
+        outputGenerationDurationMs,
+        tileGenerationDurationMs,
+        totalDurationMs: duration
+      };
+
+      job.timings = stageTimings;
       job.manifest = {
         jobId: job.id,
         tourId: job.tourId,
@@ -518,6 +595,7 @@ export class HDRWorkerPipeline {
         cleanedTemporaryKeys: cleanedKeys,
         processedAt: Date.now(),
         processingDurationMs: duration,
+        timings: stageTimings,
         mergeResult: mergeStats
       };
 
@@ -530,11 +608,50 @@ export class HDRWorkerPipeline {
         if (typeof repositoryInstance?.getScans === 'function') {
           const allScans = repositoryInstance.getScans();
           const targetScan = allScans.find((s) => s.id === job.scanId);
+          const scanUpdatePayload = {
+            fileUrl: job.panoramaUrl,
+            tileManifest: {
+              projection: 'equirectangular',
+              width: baseW,
+              height: baseH,
+              tileSize: 512,
+              levels: [
+                { level: 0, width: 512, height: 256, tilesX: 1, tilesY: 1, tileSize: 512 },
+                { level: 1, width: 1024, height: 512, tilesX: 2, tilesY: 1, tileSize: 512 },
+                { level: 2, width: baseW, height: baseH, tilesX: Math.ceil(baseW / 512), tilesY: Math.ceil(baseH / 512), tileSize: 512 }
+              ],
+              previewUrl: job.panoramaUrl || '',
+              thumbnailUrl: this.storage.getPublicUrl(thumbnailKey)
+            },
+            processingStatus: 'ready' as const
+          };
+
           if (targetScan && typeof repositoryInstance.updateScan === 'function') {
-            repositoryInstance.updateScan(job.scanId, {
-              panoramaUrl: job.panoramaUrl,
-              processingStatus: 'ready'
-            } as any);
+            repositoryInstance.updateScan(job.scanId, scanUpdatePayload as any);
+          } else if (Array.isArray((repositoryInstance as any).scans)) {
+            const newScan = {
+              id: job.scanId,
+              organizationId: 'org-default',
+              tourId: job.tourId,
+              roomId: `room-${Date.now()}`,
+              roomName: 'Default Room',
+              name: job.scanName || 'Processed Scan',
+              isStartScan: false,
+              hiddenFromWalkthrough: false,
+              yaw: 0,
+              pitch: 0,
+              hfov: 90,
+              posX: 0,
+              posY: 0,
+              posZ: 1.5,
+              imageRes: `${baseW} × ${baseH}`,
+              currentTileLevel: 2,
+              ...scanUpdatePayload
+            };
+            (repositoryInstance as any).scans = [...(repositoryInstance as any).scans, newScan];
+            if (typeof (repositoryInstance as any).notify === 'function') {
+              (repositoryInstance as any).notify();
+            }
           }
         }
       } catch (err) {
@@ -542,6 +659,7 @@ export class HDRWorkerPipeline {
       }
 
       job.status = 'COMPLETE';
+      job.standardStatus = 'DONE';
       job.progressPercent = 100;
       job.currentStep = 'Background HDR processing complete. Panorama ready for viewer.';
       this.notify(job);
@@ -556,6 +674,7 @@ export class HDRWorkerPipeline {
 
   private failJob(job: WorkerProcessingJob, code: ProcessingErrorCode, message: string): void {
     job.status = 'FAILED';
+    job.standardStatus = 'FAILED';
     job.errorCode = code;
     job.errorMessage = message;
     job.currentStep = `Failed: ${message}`;

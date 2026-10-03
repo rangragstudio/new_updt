@@ -252,7 +252,27 @@ export const TourEditorScreen: React.FC<TourEditorScreenProps> = ({
             const height = img.naturalHeight;
             const ratio = width / height;
 
-            if (width < 1024 || height < 512) {
+            const isEquirectangular = (ratio >= 1.85 && ratio <= 2.15);
+            const isPerspectiveSet = filesArray.length >= 2;
+
+            if (isEquirectangular) {
+              if (width < 1024 || height < 512) {
+                resolve({
+                  id,
+                  file,
+                  previewUrl,
+                  fileName: file.name,
+                  fileSizeBytes: file.size,
+                  width,
+                  height,
+                  isValid: false,
+                  validationError: `Resolution too low (${width} × ${height}). Minimum 1024 × 512 required for 360° panoramas.`,
+                  roomName,
+                  scanName
+                });
+                return;
+              }
+
               resolve({
                 id,
                 file,
@@ -261,15 +281,16 @@ export const TourEditorScreen: React.FC<TourEditorScreenProps> = ({
                 fileSizeBytes: file.size,
                 width,
                 height,
-                isValid: false,
-                validationError: `Resolution too low (${width} × ${height}). Minimum 1024 × 512 required.`,
+                isValid: true,
                 roomName,
                 scanName
               });
               return;
             }
 
-            if (ratio < 1.85 || ratio > 2.15) {
+            // Not equirectangular
+            if (!isPerspectiveSet) {
+              // Single perspective photo is insufficient
               resolve({
                 id,
                 file,
@@ -279,7 +300,25 @@ export const TourEditorScreen: React.FC<TourEditorScreenProps> = ({
                 width,
                 height,
                 isValid: false,
-                validationError: `Invalid aspect ratio (${ratio.toFixed(2)}:1). 360° panoramas must be ~2:1 equirectangular.`,
+                validationError: `A single perspective photo is insufficient for 360° reconstruction. Please upload at least 2 or more overlapping photos of the space.`,
+                roomName,
+                scanName
+              });
+              return;
+            }
+
+            // Multiple perspective photos (N >= 2)
+            if (width < 320 || height < 240) {
+              resolve({
+                id,
+                file,
+                previewUrl,
+                fileName: file.name,
+                fileSizeBytes: file.size,
+                width,
+                height,
+                isValid: false,
+                validationError: `Resolution too low (${width} × ${height}). Minimum 320 × 240 required.`,
                 roomName,
                 scanName
               });

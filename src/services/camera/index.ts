@@ -7,3 +7,4 @@ export * from './Insta360Provider';
 export * from './insta360';
 export * from './GoProProvider';
 export * from './CameraManager';
+export * from './DevelopmentCameraProvider';

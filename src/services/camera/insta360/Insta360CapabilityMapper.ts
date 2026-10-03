@@ -40,7 +40,7 @@ export class Insta360CapabilityMapper {
   ): Insta360DeviceCapabilities {
     if (!isSdkConfigured || !device) {
       return {
-        model: device?.model || 'Unknown',
+        model: device?.model || 'Unknown Insta360',
         firmwareVersion: device?.firmwareVersion || 'Unknown',
         isHDRSupported: false,
         isCameraSideHDRSupported: false,
@@ -54,7 +54,7 @@ export class Insta360CapabilityMapper {
     }
 
     // When a real camera is connected, query and filter based on camera model and resolution
-    const model = device.model || 'Unknown';
+    const model = device.model || 'Unknown Insta360';
     const rawFrameCounts = rawCaps?.supportedAEBFrameCounts || [];
     const rawExposureSteps = rawCaps?.supportedExposureSteps || [0.5, 1.0, 1.5, 2.0];
 

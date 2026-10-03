@@ -5,7 +5,7 @@
  */
 
 // 1. CameraProviderType
-export type CameraProviderType = 'PHONE' | 'INSTA360' | 'GOPRO' | 'EXTERNAL_GENERIC';
+export type CameraProviderType = 'PHONE' | 'INSTA360' | 'GOPRO' | 'EXTERNAL_GENERIC' | 'DEVELOPMENT_TEST';
 
 // 2. CameraConnectionState
 export type CameraConnectionState =
